@@ -6,13 +6,18 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rebeccapanel/rebecca/internal/app/nodeclient"
 	userread "github.com/rebeccapanel/rebecca/internal/app/user"
 	nodev1 "github.com/rebeccapanel/rebecca/internal/proto/node/v1"
 )
 
-const maxUserBatchItems = 1000
+const (
+	maxUserBatchItems      = 200
+	runtimeUserNodeTimeout = 90 * time.Second
+	operationResultTimeout = 30 * time.Second
+)
 
 type runtimeUserGroup struct {
 	userID int64
@@ -67,7 +72,9 @@ func (c Controller) applyRuntimeUserOperationBatch(ctx context.Context, operatio
 				return
 			}
 			defer func() { <-slots }()
-			errs[index] = c.applyRuntimeUserBatchToNode(ctx, nodeID, byNode[nodeID], &outcomes[index])
+			nodeCtx, cancel := context.WithTimeout(ctx, runtimeUserNodeTimeout)
+			defer cancel()
+			errs[index] = c.applyRuntimeUserBatchToNode(nodeCtx, nodeID, byNode[nodeID], &outcomes[index])
 		}(index, nodeID)
 	}
 	group.Wait()
@@ -88,7 +95,10 @@ func (c Controller) applyRuntimeUserOperationBatch(ctx context.Context, operatio
 // sent, because the database state is authoritative and earlier operations for
 // the same user are superseded.
 func (c Controller) applyRuntimeUserBatchToNode(ctx context.Context, nodeID int64, users map[int64][]OperationRow, result *ProcessOperationsResult) error {
-	unlock := c.lockNode(nodeID)
+	unlock, err := c.lockNodeContext(ctx, nodeID)
+	if err != nil {
+		return err
+	}
 	groups := make([]runtimeUserGroup, 0, len(users))
 	for userID, operations := range users {
 		claimed := make([]OperationRow, 0, len(operations))
@@ -395,6 +405,8 @@ func (c Controller) sendRuntimeUserBatch(ctx context.Context, client runtimeUser
 }
 
 func (c Controller) finishRuntimeUserGroup(ctx context.Context, ops []OperationRow, err error, result *ProcessOperationsResult) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), operationResultTimeout)
+	defer cancel()
 	if err == nil {
 		done, markErr := c.repo.MarkOperationsDone(ctx, operationIDs(ops))
 		if markErr != nil {

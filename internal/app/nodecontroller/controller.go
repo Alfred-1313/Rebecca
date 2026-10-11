@@ -101,13 +101,22 @@ func (c Controller) lockRuntimeConfigPreparation(ctx context.Context) (func(), e
 }
 
 func (c Controller) lockNode(nodeID int64) func() {
+	unlock, _ := c.lockNodeContext(context.Background(), nodeID)
+	return unlock
+}
+
+func (c Controller) lockNodeContext(ctx context.Context, nodeID int64) (func(), error) {
 	if c.nodeLocks == nil {
-		return func() {}
+		return func() {}, nil
 	}
-	value, _ := c.nodeLocks.LoadOrStore(nodeID, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
-	lock.Lock()
-	return lock.Unlock
+	value, _ := c.nodeLocks.LoadOrStore(nodeID, make(chan struct{}, 1))
+	slot := value.(chan struct{})
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (c Controller) PrepareStartupFullSync(ctx context.Context) (int, error) {
