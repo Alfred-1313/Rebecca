@@ -35,3 +35,24 @@ describe("fetchServiceDetail", () => {
 		expect(useServicesStore.getState().isLoading).toBe(false);
 	});
 });
+
+describe("fetchServices", () => {
+	afterEach(() => {
+		vi.clearAllMocks();
+		useServicesStore.setState({ services: [], total: 0, isLoading: false });
+	});
+
+	it("requests every service unless a caller asks for a page", async () => {
+		vi.mocked(apiFetch).mockResolvedValue({ services: [], total: 0 });
+
+		await useServicesStore.getState().fetchServices();
+		expect(vi.mocked(apiFetch).mock.calls.at(-1)?.[1]).toMatchObject({
+			query: { limit: "none", offset: 0 },
+		});
+
+		await useServicesStore.getState().fetchServices({ limit: 5, offset: 10 });
+		expect(vi.mocked(apiFetch).mock.calls.at(-1)?.[1]).toMatchObject({
+			query: { limit: 5, offset: 10 },
+		});
+	});
+});

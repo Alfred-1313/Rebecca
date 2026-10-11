@@ -65,7 +65,7 @@ export const useServicesStore = create<ServicesStore>((set, get) => ({
 		set({ isLoading: true });
 		try {
 			const response = await fetch<ServiceListResponse>("/v2/services", {
-				query: params,
+				query: { limit: "none", offset: 0, ...params },
 			});
 			if (requestId !== servicesFetchSequence) {
 				return;
