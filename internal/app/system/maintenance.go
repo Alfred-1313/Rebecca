@@ -743,11 +743,24 @@ func (c *GitHubUpdateChecker) statusUncached(ctx context.Context, repo string, c
 	}
 	if target != nil {
 		if tag := strings.TrimSpace(stringFromAny((*target)["tag"])); tag != "" {
-			status.Target = &tag
-			status.Available = IsDifferentVersion(current, status.Target)
+			if currentChannel != "dev" && !versionAtLeast(tag, floorForRepo(repo)) {
+				tag = c.newestListedStable(ctx, repo)
+			}
+			if tag != "" {
+				status.Target = &tag
+				status.Available = IsDifferentVersion(current, status.Target)
+			}
 		}
 	}
 	return status
+}
+
+func (c *GitHubUpdateChecker) newestListedStable(ctx context.Context, repo string) string {
+	catalog, err := c.Builds(ctx, repo)
+	if err != nil {
+		return ""
+	}
+	return newestStableVersion(catalog.Stable)
 }
 
 func (c *GitHubUpdateChecker) now() time.Time {

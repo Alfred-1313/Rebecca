@@ -163,3 +163,38 @@ func TestGitHubCatalogServesLastCatalogWhenGitHubFails(t *testing.T) {
 		t.Fatal("without an earlier catalog the failure must be returned")
 	}
 }
+
+func TestGitHubStatusTargetSkipsReleasesBelowTheFloor(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/rebeccapanel/Rebecca/releases/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.5.1", "name": "v1.5.1"})
+		case "/repos/rebeccapanel/Rebecca/releases":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"tag_name": "v1.5.1"}, {"tag_name": "v1.6.0"}})
+		case "/rebeccapanel/Rebecca/dev-build-manifest/dev-builds.json":
+			_ = json.NewEncoder(w).Encode(map[string]any{"builds": []map[string]any{}})
+		case "/repos/rebeccapanel/Rebecca/actions/workflows/binary-build.yml/runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"workflow_runs": []map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	checker := &GitHubUpdateChecker{
+		APIBase:        server.URL,
+		RawBase:        server.URL,
+		HTTPClient:     server.Client(),
+		ManifestBranch: "dev-build-manifest",
+		ManifestPath:   "dev-builds.json",
+		Now:            func() time.Time { return time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC) },
+	}
+	current := "v1.5.0"
+	status := checker.Status(context.Background(), PanelUpdateRepo, &current, "stable")
+	if status.Error != "" {
+		t.Fatalf("unexpected status error: %s", status.Error)
+	}
+	if status.Target == nil || *status.Target != "v1.6.0" || !status.Available {
+		t.Fatalf("target = %v available = %v, want v1.6.0 available", status.Target, status.Available)
+	}
+}
