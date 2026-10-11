@@ -140,9 +140,10 @@ func (c Controller) applyRuntimeUserBatchToNode(ctx context.Context, nodeID int6
 
 	planned := make([]plannedRuntimeUserGroup, 0, len(groups))
 	fallbacks := make([]runtimeUserGroup, 0)
+	syncCache := &runtimeSyncCache{}
 	for _, group := range groups {
 		latest := group.ops[len(group.ops)-1]
-		perOperation, err := c.runtimeUserNeedsPerOperationPath(ctx, client, node, latest)
+		perOperation, err := c.runtimeUserNeedsPerOperationPath(ctx, client, node, latest, syncCache)
 		if err != nil {
 			planned = append(planned, plannedRuntimeUserGroup{group: group, planErr: err})
 			continue
@@ -190,14 +191,14 @@ func (c Controller) retryRuntimeUserGroups(ctx context.Context, groups []runtime
 	}
 }
 
-func (c Controller) runtimeUserNeedsPerOperationPath(ctx context.Context, client *nodeclient.Client, node NodeRow, operation OperationRow) (bool, error) {
+func (c Controller) runtimeUserNeedsPerOperationPath(ctx context.Context, client *nodeclient.Client, node NodeRow, operation OperationRow, syncCache *runtimeSyncCache) (bool, error) {
 	if !client.Supports("user_batch") {
 		return true, nil
 	}
 	if operation.OperationType == "update_user" && !client.Supports("targeted_user_update") {
 		return true, nil
 	}
-	return c.userOperationRequiresConfigSync(ctx, node, operation)
+	return c.userOperationRequiresConfigSyncCached(ctx, node, operation, syncCache)
 }
 
 func (c Controller) planRuntimeUserItems(
@@ -217,10 +218,7 @@ func (c Controller) planRuntimeUserItems(
 	}
 	switch operation.OperationType {
 	case "remove_user", "disable_user":
-		tags, err := c.legacyRuntimeInboundTags(ctx, node)
-		if err != nil {
-			return nil, false, err
-		}
+		tags := legacyRuntimeInboundTagsFromRaw(raw)
 		items := make([]*nodev1.UserBatchOperation, 0, len(tags)*2)
 		for _, tag := range tags {
 			for _, candidate := range []string{taggedRuntimeUserEmail(email, tag), email} {
