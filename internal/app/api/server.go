@@ -282,6 +282,10 @@ func (s *Server) handleNodesServiceUpdate(w http.ResponseWriter, r *http.Request
 			writeControllerError(w, err)
 			return
 		}
+		if err := s.checkNodeUpdateTarget(r.Context(), target.ID, target.Channel, target.Version); err != nil {
+			writeMaintenanceError(w, err)
+			return
+		}
 		targets = append(targets, target)
 		names = append(names, name)
 	}
@@ -667,6 +671,10 @@ func (s *Server) handleNodeServiceUpdate(w http.ResponseWriter, r *http.Request,
 	}
 	if err := decodeOptionalJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.checkNodeUpdateTarget(r.Context(), nodeID, payload.Channel, payload.Version); err != nil {
+		writeMaintenanceError(w, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)

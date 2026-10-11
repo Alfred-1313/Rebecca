@@ -25,7 +25,23 @@ var (
 	devVersionPattern     = regexp.MustCompile(`^dev-[0-9a-fA-F]{7,40}$`)
 )
 
-const versionSwitchFloor = "v1.4.0"
+const (
+	// PanelUpdateRepo and NodeUpdateRepo are the repositories updates are read from.
+	PanelUpdateRepo = "rebeccapanel/Rebecca"
+	NodeUpdateRepo  = "rebeccapanel/Rebecca-node"
+)
+
+// versionSwitchFloor is the first stable panel release that runs database schema v60.
+// Older releases cannot open a database migrated past them.
+const versionSwitchFloor = "v1.6.0"
+
+// nodeVersionFloor is the first stable node release that matches the panel
+// release above. Older nodes are not offered as update targets.
+const nodeVersionFloor = "v1.6.0"
+
+// devSchemaFloor is when the first dev build with schema v60 was published.
+// Dev builds created before it cannot open the migrated database.
+var devSchemaFloor, _ = time.Parse(time.RFC3339, "2026-10-11T13:45:00Z")
 
 type MaintenanceError struct {
 	Status int
@@ -136,7 +152,7 @@ func NewMaintenanceServiceWithDeps(runtimeDetector RuntimeDetector, updateChecke
 
 func (s *MaintenanceService) Info(ctx context.Context) (MaintenanceInfo, error) {
 	panel := s.Runtime.Info()
-	panel.Update = ptr(s.Updates.Status(ctx, "rebeccapanel/Rebecca", panel.Tag, panel.Channel))
+	panel.Update = ptr(s.Updates.Status(ctx, PanelUpdateRepo, panel.Tag, panel.Channel))
 	return MaintenanceInfo{
 		Panel:      panel,
 		Node:       nil,
@@ -148,7 +164,7 @@ func (s *MaintenanceService) Builds(ctx context.Context, repo string) (BuildCata
 	return s.Updates.Builds(ctx, repo)
 }
 
-func (s *MaintenanceService) Update(_ context.Context, req MaintenanceUpdateRequest) (MaintenanceOperationSnapshot, error) {
+func (s *MaintenanceService) Update(ctx context.Context, req MaintenanceUpdateRequest) (MaintenanceOperationSnapshot, error) {
 	if err := requireBinaryRuntime(s.Runtime.Info()); err != nil {
 		return MaintenanceOperationSnapshot{}, err
 	}
@@ -156,7 +172,95 @@ func (s *MaintenanceService) Update(_ context.Context, req MaintenanceUpdateRequ
 	if err != nil {
 		return MaintenanceOperationSnapshot{}, err
 	}
+	if err := ValidateUpdateTarget(ctx, s.Updates, PanelUpdateRepo, req.Channel, req.Version, s.Runtime.Info().Channel); err != nil {
+		return MaintenanceOperationSnapshot{}, err
+	}
 	return s.startOperation("update", args, "Preparing panel update")
+}
+
+// UpdateFollowsCurrentChannel reports whether a request names neither a build nor
+// a channel, so the target is the channel the updated build already runs on.
+func UpdateFollowsCurrentChannel(channel string, version string) bool {
+	if strings.TrimSpace(version) != "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(channel)) {
+	case "dev", "latest", "stable", "release":
+		return false
+	}
+	return true
+}
+
+// ValidateUpdateTarget refuses any update target that is not in the catalog.
+// The catalog already drops builds below the repository's floor and dev builds
+// published before the schema floor, so a request cannot downgrade by naming an
+// old build or by resolving a channel to one. currentChannel is the channel the
+// target runs on. It is needed when a request names no channel, and an unknown
+// value fails closed.
+func ValidateUpdateTarget(ctx context.Context, checker UpdateChecker, repo string, channel string, version string, currentChannel string) error {
+	catalog, err := checker.Builds(ctx, repo)
+	if err != nil {
+		return MaintenanceError{Status: http.StatusBadGateway, Detail: "Could not verify the update target: " + err.Error()}
+	}
+	refuse := MaintenanceError{Status: http.StatusConflict, Detail: "This build is older than the minimum version this panel allows; downgrades are not allowed"}
+	target := strings.ToLower(strings.TrimSpace(version))
+	if target == "" {
+		switch strings.ToLower(strings.TrimSpace(channel)) {
+		case "dev":
+			target = "dev"
+		case "latest", "stable", "release":
+			target = "latest"
+		}
+	}
+	if target == "" {
+		switch strings.ToLower(strings.TrimSpace(currentChannel)) {
+		case "dev":
+			target = "dev"
+		case "latest", "stable", "release":
+			target = "latest"
+		default:
+			return MaintenanceError{Status: http.StatusUnprocessableEntity, Detail: "The current update channel is unknown; choose a channel or version"}
+		}
+	}
+	switch {
+	case target == "dev":
+		if len(catalog.Dev) == 0 {
+			return refuse
+		}
+	case target == "latest":
+		if len(catalog.Stable) == 0 {
+			return refuse
+		}
+	case strings.HasPrefix(target, "dev-"):
+		if !hasDevBuild(catalog.Dev, target) {
+			return refuse
+		}
+	default:
+		if !versionAtLeast(target, catalog.Floor) || !hasStableBuild(catalog.Stable, target) {
+			return refuse
+		}
+	}
+	return nil
+}
+
+func hasDevBuild(builds []BuildVersion, target string) bool {
+	name := strings.TrimPrefix(target, "dev-")
+	for _, build := range builds {
+		if strings.EqualFold(build.Version, target) || (name != "" && strings.HasPrefix(strings.ToLower(build.Commit), name)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStableBuild(builds []BuildVersion, target string) bool {
+	name := strings.TrimPrefix(target, "v")
+	for _, build := range builds {
+		if strings.EqualFold(strings.TrimPrefix(build.Version, "v"), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *MaintenanceService) Restart(context.Context) (MaintenanceOperationSnapshot, error) {
@@ -555,15 +659,16 @@ func (c *GitHubUpdateChecker) Builds(ctx context.Context, repo string) (BuildCat
 	}
 	c.mu.Unlock()
 
-	stable, floorTime, err := c.buildStableVersions(ctx, repo)
+	floor := floorForRepo(repo)
+	stable, err := c.buildStableVersions(ctx, repo, floor)
 	if err != nil {
 		return BuildCatalog{}, err
 	}
-	dev, err := c.buildDevVersions(ctx, repo, floorTime)
+	dev, err := c.buildDevVersions(ctx, repo, devSchemaFloor)
 	if err != nil {
 		return BuildCatalog{}, err
 	}
-	catalog := BuildCatalog{Floor: versionSwitchFloor, Stable: stable, Dev: dev}
+	catalog := BuildCatalog{Floor: floor, Stable: stable, Dev: dev}
 	ttl := c.CacheTTL
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
@@ -703,27 +808,29 @@ func (c *GitHubUpdateChecker) latestRelease(ctx context.Context, repo string) (*
 	return &info, nil
 }
 
-func (c *GitHubUpdateChecker) buildStableVersions(ctx context.Context, repo string) ([]BuildVersion, time.Time, error) {
+func floorForRepo(repo string) string {
+	if strings.EqualFold(repo, NodeUpdateRepo) {
+		return nodeVersionFloor
+	}
+	return versionSwitchFloor
+}
+
+func (c *GitHubUpdateChecker) buildStableVersions(ctx context.Context, repo string, floor string) ([]BuildVersion, error) {
 	var data []map[string]any
 	url := strings.TrimRight(c.APIBase, "/") + "/repos/" + repo + "/releases?per_page=100"
 	if err := c.getJSON(ctx, url, &data); err != nil {
-		return nil, time.Time{}, err
+		return nil, err
 	}
 	versions := make([]BuildVersion, 0, len(data))
-	floorTag := versionSwitchFloor
-	var floorTime time.Time
 	for _, item := range data {
 		if boolFromAny(item["draft"]) || boolFromAny(item["prerelease"]) {
 			continue
 		}
 		version := firstNonEmptyString(stringFromAny(item["tag_name"]), stringFromAny(item["name"]))
-		if !versionAtLeast(version, versionSwitchFloor) {
+		if !versionAtLeast(version, floor) {
 			continue
 		}
 		published := stringFromAny(item["published_at"])
-		if NormalizeVersionTag(&version) == NormalizeVersionTag(&floorTag) {
-			floorTime = parseBuildTime(published)
-		}
 		versions = append(versions, BuildVersion{
 			Version:   version,
 			Channel:   "stable",
@@ -731,7 +838,7 @@ func (c *GitHubUpdateChecker) buildStableVersions(ctx context.Context, repo stri
 			URL:       stringFromAny(item["html_url"]),
 		})
 	}
-	return versions, floorTime, nil
+	return versions, nil
 }
 
 func (c *GitHubUpdateChecker) buildDevVersions(ctx context.Context, repo string, floorTime time.Time) ([]BuildVersion, error) {
