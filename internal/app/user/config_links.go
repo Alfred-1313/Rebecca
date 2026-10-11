@@ -918,6 +918,12 @@ func RuntimeShadowsocksSettings(settings map[string]any, inboundSettings map[str
 	return data
 }
 
+func RuntimeShadowsocksLiveSettings(settings map[string]any, inboundSettings map[string]any) map[string]any {
+	data := RuntimeShadowsocksSettings(settings, inboundSettings)
+	data["method"] = firstNonEmptyString(inboundSettings["method"], defaultShadowsocksMethod)
+	return data
+}
+
 func shadowsocks2022Password(password string, method string) string {
 	keyLength := 32
 	if strings.Contains(method, "aes-128") {

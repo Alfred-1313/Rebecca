@@ -263,7 +263,7 @@ func buildRuntimeUserUpserts(
 				continue
 			}
 			if runtimeUser.Protocol == "shadowsocks" {
-				settings = userread.RuntimeShadowsocksSettings(settings, ensureMap(inbound, "settings"))
+				settings = userread.RuntimeShadowsocksLiveSettings(settings, ensureMap(inbound, "settings"))
 			}
 			settings["email"] = taggedRuntimeUserEmail(legacyEmail, tag)
 			settings["protocol"] = protocol

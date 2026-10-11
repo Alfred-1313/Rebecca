@@ -5,8 +5,21 @@ import (
 	"errors"
 	"testing"
 
+	userread "github.com/rebeccapanel/rebecca/internal/app/user"
 	nodev1 "github.com/rebeccapanel/rebecca/internal/proto/node/v1"
 )
+
+func TestShadowsocks2022LiveUserPayloadCarriesInboundMethod(t *testing.T) {
+	inbound := map[string]any{"tag": "ss", "protocol": "shadowsocks", "settings": map[string]any{"method": "2022-blake3-aes-256-gcm"}}
+	settings, err := userread.RuntimeProxySettingsForInbound(map[string]any{"password": "secret", "method": "chacha20-ietf-poly1305"}, inbound, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := grpcInboundUserPayload(userread.RuntimeShadowsocksLiveSettings(settings, ensureMap(inbound, "settings")))
+	if payload.GetFields()["method"] != "2022-blake3-aes-256-gcm" {
+		t.Fatalf("live payload method = %q, want the inbound 2022 method", payload.GetFields()["method"])
+	}
+}
 
 func plannedGroup(items int, planErr error) plannedRuntimeUserGroup {
 	planned := plannedRuntimeUserGroup{planErr: planErr}
