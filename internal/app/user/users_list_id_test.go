@@ -17,7 +17,7 @@ func TestUsersListSearchMatchesDatabaseUserID(t *testing.T) {
 	}
 	defer db.Close()
 	for _, statement := range []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, status TEXT, used_traffic BIGINT, created_at DATETIME, expire BIGINT, data_limit BIGINT, data_limit_reset_strategy TEXT, online_at DATETIME, service_id BIGINT, admin_id BIGINT, credential_key TEXT, subadress TEXT, flow TEXT, on_hold_expire_duration BIGINT, note TEXT, telegram_id TEXT, contact_number TEXT)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, status TEXT, used_traffic BIGINT, created_at DATETIME, expire BIGINT, data_limit BIGINT, data_limit_reset_strategy TEXT, online_at DATETIME, service_id BIGINT, admin_id BIGINT, credential_key TEXT, subscription_token TEXT, flow TEXT, on_hold_expire_duration BIGINT, note TEXT, telegram_id TEXT, contact_number TEXT)`,
 		`CREATE TABLE user_presence (user_id INTEGER PRIMARY KEY, online_at DATETIME NOT NULL)`,
 		`CREATE TABLE admins (id INTEGER PRIMARY KEY, username TEXT)`,
 		`CREATE TABLE services (id INTEGER PRIMARY KEY, name TEXT)`,

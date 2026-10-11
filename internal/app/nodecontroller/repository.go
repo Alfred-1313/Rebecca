@@ -125,7 +125,7 @@ FROM nodes WHERE id = ? AND LOWER(COALESCE(status, '')) <> 'deleted' LIMIT 1`, n
 
 func (r Repository) TLS(ctx context.Context) (TLSRow, error) {
 	var row TLSRow
-	err := r.db.QueryRowContext(ctx, `SELECT certificate, `+"`key`"+` FROM tls ORDER BY id LIMIT 1`).Scan(&row.Certificate, &row.Key)
+	err := r.db.QueryRowContext(ctx, `SELECT certificate, private_key FROM default_certificates ORDER BY id LIMIT 1`).Scan(&row.Certificate, &row.Key)
 	if err != nil {
 		return TLSRow{}, err
 	}
@@ -317,7 +317,7 @@ SELECT
 	COALESCE(p.settings, '{}')
 FROM users u
 JOIN (` + protocolQuery + `) protocols
-LEFT JOIN proxies p ON u.id = p.user_id AND LOWER(p.type) = protocols.type`
+LEFT JOIN user_credentials p ON u.id = p.user_id AND LOWER(p.type) = protocols.type`
 	if excludeVPNSessions {
 		query += `
 LEFT JOIN (
@@ -455,7 +455,7 @@ func (r Repository) callbackSecret(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	var adminSecret, legacySecret sql.NullString
-	err := r.db.QueryRowContext(ctx, `SELECT admin_secret_key, secret_key FROM jwt ORDER BY id LIMIT 1`).Scan(&adminSecret, &legacySecret)
+	err := r.db.QueryRowContext(ctx, `SELECT admin_secret_key, secret_key FROM auth_secrets ORDER BY id LIMIT 1`).Scan(&adminSecret, &legacySecret)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

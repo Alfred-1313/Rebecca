@@ -544,10 +544,10 @@ CREATE TABLE nodes (
 	last_status_change DATETIME,
 	usage_coefficient REAL DEFAULT 1
 );
-CREATE TABLE tls (
+CREATE TABLE default_certificates (
 	id INTEGER PRIMARY KEY,
 	certificate TEXT,
-	"key" TEXT
+	private_key TEXT
 );
 CREATE TABLE node_operations (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -562,7 +562,7 @@ CREATE TABLE node_operations (
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL
 );
-INSERT INTO tls (id, certificate, "key") VALUES (1, 'bad cert', 'bad key');
+INSERT INTO default_certificates (id, certificate, "private_key") VALUES (1, 'bad cert', 'bad key');
 INSERT INTO nodes (id, name, address, port, api_port, status, usage_coefficient)
 VALUES
 	(24, 'bad-node', '127.0.0.1', 62024, 62025, 'error', 1),
@@ -785,7 +785,7 @@ CREATE TABLE users (
 	service_id INTEGER,
 	status TEXT
 );
-CREATE TABLE proxies (
+CREATE TABLE user_credentials (
 	id INTEGER PRIMARY KEY,
 	user_id INTEGER,
 	type TEXT,
@@ -858,10 +858,10 @@ CREATE TABLE nodes (
 	xray_config TEXT,
 	usage_coefficient REAL DEFAULT 1
 );
-CREATE TABLE tls (
+CREATE TABLE default_certificates (
 	id INTEGER PRIMARY KEY,
 	certificate TEXT,
-	"key" TEXT
+	private_key TEXT
 );
 CREATE TABLE node_operations (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -876,7 +876,7 @@ CREATE TABLE node_operations (
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL
 );
-INSERT INTO tls (id, certificate, "key") VALUES (1, 'bad cert', 'bad key');
+INSERT INTO default_certificates (id, certificate, "private_key") VALUES (1, 'bad cert', 'bad key');
 INSERT INTO nodes (id, name, address, port, api_port, status, xray_config_mode, usage_coefficient)
 VALUES
 	(1, 'unreachable-a', '127.0.0.1', 62050, 62051, 'connected', 'default', 1),
@@ -1572,7 +1572,7 @@ CREATE TABLE users (
 	status TEXT NOT NULL,
 	ip_limit INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE proxies (
+CREATE TABLE user_credentials (
 	id INTEGER PRIMARY KEY,
 	user_id INTEGER NOT NULL,
 	type TEXT NOT NULL,
@@ -1594,7 +1594,7 @@ CREATE TABLE vpn_user_sessions (
 INSERT INTO users (id, username, credential_key, service_id, status, ip_limit) VALUES
 	(1, 'at-limit', 'key-1', 10, 'active', 1),
 	(2, 'under-limit', 'key-2', 10, 'active', 2);
-INSERT INTO proxies (id, user_id, type, settings) VALUES
+INSERT INTO user_credentials (id, user_id, type, settings) VALUES
 	(1, 1, 'vless', '{}'),
 	(2, 2, 'vless', '{}');
 INSERT INTO vpn_user_sessions (node_id, user_id, protocol, session_id, assigned_ip, client_ip, started_at, last_seen_at, ended_at) VALUES
@@ -1696,14 +1696,14 @@ CREATE TABLE nodes (
 	xray_config TEXT,
 	usage_coefficient REAL DEFAULT 1
 );
-CREATE TABLE tls (
+CREATE TABLE default_certificates (
 	id INTEGER PRIMARY KEY,
 	certificate TEXT,
-	"key" TEXT
+	private_key TEXT
 );
 INSERT INTO nodes (id, name, address, port, api_port, status, message, usage_coefficient)
 VALUES (1, 'node', '127.0.0.1', 62050, 62051, 'connected', 'stable', 1);
-INSERT INTO tls (id, certificate, "key") VALUES (1, 'bad cert', 'bad key');
+INSERT INTO default_certificates (id, certificate, "private_key") VALUES (1, 'bad cert', 'bad key');
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -1744,12 +1744,12 @@ CREATE TABLE nodes (
 	xray_config TEXT,
 	usage_coefficient REAL DEFAULT 1
 );
-CREATE TABLE tls (id INTEGER PRIMARY KEY, certificate TEXT, "key" TEXT);
+CREATE TABLE default_certificates (id INTEGER PRIMARY KEY, certificate TEXT, private_key TEXT);
 INSERT INTO nodes (id, name, address, port, api_port, status, message, usage_coefficient) VALUES
 	(1, 'connected', '127.0.0.1', 62050, 62051, 'connected', 'stable', 1),
 	(2, 'disabled', '127.0.0.1', 62050, 62051, 'disabled', 'disabled', 1),
 	(3, 'deleted', '127.0.0.1', 62050, 62051, 'deleted', 'deleted', 1);
-INSERT INTO tls (id, certificate, "key") VALUES (1, 'bad cert', 'bad key');
+INSERT INTO default_certificates (id, certificate, "private_key") VALUES (1, 'bad cert', 'bad key');
 `)
 	if err != nil {
 		t.Fatal(err)

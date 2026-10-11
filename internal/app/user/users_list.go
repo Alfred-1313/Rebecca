@@ -356,7 +356,7 @@ func (r Repository) usersRows(ctx context.Context, filter usersFilter, req Users
 	u.admin_id,
 	a.username,
 	u.credential_key,
-	u.subadress,
+	u.subscription_token,
 	u.flow,
 	u.on_hold_expire_duration` + usersRowsFromSQL() + filter.whereSQL() + " ORDER BY " + usersOrderSQL(req.Sort)
 	args := append([]any{cutoff, cutoff, cutoff, cutoff, cutoff, cutoff}, filter.args...)
@@ -553,10 +553,10 @@ func addAdvancedUsersFilters(filter *usersFilter, filters []string) {
 		filter.add("(u.data_limit IS NULL OR u.data_limit = 0)")
 	}
 	if _, ok := normalized["sub_not_updated"]; ok {
-		filter.add("(COALESCE((SELECT usa.updated_at FROM user_subscription_access usa WHERE usa.user_id = u.id), u.sub_updated_at) IS NULL OR COALESCE((SELECT usa.updated_at FROM user_subscription_access usa WHERE usa.user_id = u.id), u.sub_updated_at) < ?)", now.Add(-24*time.Hour))
+		filter.add("((SELECT usa.updated_at FROM user_subscription_access usa WHERE usa.user_id = u.id) IS NULL OR (SELECT usa.updated_at FROM user_subscription_access usa WHERE usa.user_id = u.id) < ?)", now.Add(-24*time.Hour))
 	}
 	if _, ok := normalized["sub_never_updated"]; ok {
-		filter.add("COALESCE((SELECT usa.updated_at FROM user_subscription_access usa WHERE usa.user_id = u.id), u.sub_updated_at) IS NULL")
+		filter.add("(SELECT usa.updated_at FROM user_subscription_access usa WHERE usa.user_id = u.id) IS NULL")
 	}
 	statuses := make([]string, 0, 4)
 	for key, status := range map[string]string{"expired": "expired", "limited": "limited", "disabled": "disabled", "on_hold": "on_hold"} {
@@ -576,7 +576,7 @@ func (r Repository) addUsersSearchFilter(filter *usersFilter, search string, opt
 		return nil
 	}
 	searchClause, args := searchmatch.SQLAny(r.dialect, []string{
-		"u.username", "u.subadress", "u.note", "u.credential_key",
+		"u.username", "u.subscription_token", "u.note", "u.credential_key",
 		"u.telegram_id", "u.contact_number",
 	}, search, options)
 	clauses := []string{searchClause}
@@ -627,7 +627,7 @@ func (r Repository) addUsersSearchFilter(filter *usersFilter, search string, opt
 		for range values {
 			proxyClauses = append(proxyClauses, "p.settings LIKE ?")
 		}
-		clauses = append(clauses, "EXISTS (SELECT 1 FROM proxies p WHERE p.user_id = u.id AND ("+strings.Join(proxyClauses, " OR ")+"))")
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM user_credentials p WHERE p.user_id = u.id AND ("+strings.Join(proxyClauses, " OR ")+"))")
 		for _, value := range values {
 			args = append(args, "%"+value+"%")
 		}
@@ -638,7 +638,7 @@ func (r Repository) addUsersSearchFilter(filter *usersFilter, search string, opt
 		for range values {
 			proxyClauses = append(proxyClauses, "p.settings LIKE ?")
 		}
-		clauses = append(clauses, "EXISTS (SELECT 1 FROM proxies p WHERE p.user_id = u.id AND ("+strings.Join(proxyClauses, " OR ")+"))")
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM user_credentials p WHERE p.user_id = u.id AND ("+strings.Join(proxyClauses, " OR ")+"))")
 		for _, value := range values {
 			args = append(args, "%"+value+"%")
 		}
