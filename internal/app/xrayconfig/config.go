@@ -1637,6 +1637,9 @@ func validateExecutableInbound(inbound map[string]any) error {
 			if err != nil || len(key) != keyLength {
 				return fmt.Errorf("invalid inbound %q: Shadowsocks 2022 server password must be a base64-encoded %d-byte key", tag, keyLength)
 			}
+			if clients, _ := settings["clients"].([]any); len(clients) > 0 && strings.Contains(method, "chacha") {
+				return fmt.Errorf("invalid inbound %q: Shadowsocks 2022 chacha20-poly1305 supports a single user only; use blake3-aes-*-gcm for multiple users", tag)
+			}
 		}
 	}
 
