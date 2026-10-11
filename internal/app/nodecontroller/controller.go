@@ -35,7 +35,6 @@ type Controller struct {
 const (
 	maxConcurrentSingleNodeOperations  = 8
 	maxConcurrentRuntimeUserOperations = 32
-	bulkRuntimeUserOperationThreshold  = 32
 	nodeHealthFailureThreshold         = 3
 	maxNodeOperationID                 = int64(1<<63 - 1)
 )
@@ -465,20 +464,11 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 	}
 	result := ProcessOperationsResult{}
 	blockedNodes := map[int64]bool{}
-	foldedNodes := bulkRuntimeUserOperationNodes(operations)
-	for nodeID := range foldedNodes {
-		if err := c.repo.QueueSyncConfig(ctx, &nodeID, nil); err != nil {
-			return result, err
-		}
-	}
 	groups := []operationGroup{}
 	groupIndexes := map[string]int{}
 	globalCoalesced := []OperationRow{}
 	runtimeUserOperations := []OperationRow{}
 	for _, operation := range operations {
-		if operation.NodeID.Valid && foldedNodes[operation.NodeID.Int64] && isRuntimeUserOperation(operation.OperationType) {
-			continue
-		}
 		if operation.NodeID.Valid && operation.UserID.Valid && isRuntimeUserOperation(operation.OperationType) {
 			runtimeUserOperations = append(runtimeUserOperations, operation)
 			continue
@@ -513,22 +503,6 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 		}
 	}
 	return result, nil
-}
-
-func bulkRuntimeUserOperationNodes(operations []OperationRow) map[int64]bool {
-	counts := map[int64]int{}
-	for _, operation := range operations {
-		if operation.NodeID.Valid && isRuntimeUserOperation(operation.OperationType) {
-			counts[operation.NodeID.Int64]++
-		}
-	}
-	result := map[int64]bool{}
-	for nodeID, count := range counts {
-		if count > bulkRuntimeUserOperationThreshold {
-			result[nodeID] = true
-		}
-	}
-	return result
 }
 
 type operationGroup struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/rebeccapanel/rebecca/internal/app/nodeclient"
 	userread "github.com/rebeccapanel/rebecca/internal/app/user"
@@ -51,12 +52,32 @@ func (c Controller) applyRuntimeUserOperationBatch(ctx context.Context, operatio
 		nodeIDs = append(nodeIDs, nodeID)
 	}
 	sort.Slice(nodeIDs, func(i, j int) bool { return nodeIDs[i] < nodeIDs[j] })
-	for _, nodeID := range nodeIDs {
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		if err := c.applyRuntimeUserBatchToNode(ctx, nodeID, byNode[nodeID], &result); err != nil {
-			return result, err
+	outcomes := make([]ProcessOperationsResult, len(nodeIDs))
+	errs := make([]error, len(nodeIDs))
+	slots := make(chan struct{}, maxConcurrentRuntimeUserOperations)
+	var group sync.WaitGroup
+	for index, nodeID := range nodeIDs {
+		group.Add(1)
+		go func(index int, nodeID int64) {
+			defer group.Done()
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				errs[index] = ctx.Err()
+				return
+			}
+			defer func() { <-slots }()
+			errs[index] = c.applyRuntimeUserBatchToNode(ctx, nodeID, byNode[nodeID], &outcomes[index])
+		}(index, nodeID)
+	}
+	group.Wait()
+	for index := range nodeIDs {
+		result.Processed += outcomes[index].Processed
+		result.Done += outcomes[index].Done
+		result.Retrying += outcomes[index].Retrying
+		result.Failed += outcomes[index].Failed
+		if errs[index] != nil {
+			return result, errs[index]
 		}
 	}
 	return result, nil
