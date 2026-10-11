@@ -662,11 +662,11 @@ func (c *GitHubUpdateChecker) Builds(ctx context.Context, repo string) (BuildCat
 	floor := floorForRepo(repo)
 	stable, err := c.buildStableVersions(ctx, repo, floor)
 	if err != nil {
-		return BuildCatalog{}, err
+		return c.staleBuildCatalog(repo, now, err)
 	}
 	dev, err := c.buildDevVersions(ctx, repo, devSchemaFloor)
 	if err != nil {
-		return BuildCatalog{}, err
+		return c.staleBuildCatalog(repo, now, err)
 	}
 	catalog := BuildCatalog{Floor: floor, Stable: stable, Dev: dev}
 	ttl := c.CacheTTL
@@ -813,6 +813,22 @@ func floorForRepo(repo string) string {
 		return nodeVersionFloor
 	}
 	return versionSwitchFloor
+}
+
+func (c *GitHubUpdateChecker) staleBuildCatalog(repo string, now time.Time, err error) (BuildCatalog, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cached, ok := c.catalog[repo]
+	if !ok {
+		return BuildCatalog{}, err
+	}
+	ttl := c.ErrorTTL
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	cached.expiresAt = now.Add(ttl)
+	c.catalog[repo] = cached
+	return cloneBuildCatalog(cached.catalog), nil
 }
 
 func (c *GitHubUpdateChecker) buildStableVersions(ctx context.Context, repo string, floor string) ([]BuildVersion, error) {

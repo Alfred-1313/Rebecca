@@ -2,7 +2,12 @@ package system
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type fakeBuildCatalog struct {
@@ -85,5 +90,54 @@ func TestUpdateFollowsCurrentChannel(t *testing.T) {
 	}
 	if UpdateFollowsCurrentChannel("", "v1.6.0") || UpdateFollowsCurrentChannel("stable", "") || UpdateFollowsCurrentChannel("dev", "") {
 		t.Fatal("an explicit build or channel must not follow the running channel")
+	}
+}
+
+func TestGitHubCatalogServesLastCatalogWhenGitHubFails(t *testing.T) {
+	var down atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			http.Error(w, "rate limit exceeded", http.StatusForbidden)
+			return
+		}
+		switch r.URL.Path {
+		case "/repos/rebeccapanel/Rebecca-node/releases":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"tag_name": "v1.6.0"}})
+		case "/rebeccapanel/Rebecca-node/dev-build-manifest/dev-builds.json":
+			_ = json.NewEncoder(w).Encode(map[string]any{"builds": []map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	now := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	checker := &GitHubUpdateChecker{
+		APIBase:        server.URL,
+		RawBase:        server.URL,
+		HTTPClient:     server.Client(),
+		ManifestBranch: "dev-build-manifest",
+		ManifestPath:   "dev-builds.json",
+		CacheTTL:       time.Minute,
+		ErrorTTL:       time.Minute,
+		Now:            func() time.Time { return now },
+	}
+	ctx := context.Background()
+	if _, err := checker.Builds(ctx, NodeUpdateRepo); err != nil {
+		t.Fatal(err)
+	}
+	down.Store(true)
+	now = now.Add(2 * time.Minute)
+	catalog, err := checker.Builds(ctx, NodeUpdateRepo)
+	if err != nil {
+		t.Fatalf("a failed refresh must serve the last catalog: %v", err)
+	}
+	if len(catalog.Stable) != 1 || catalog.Stable[0].Version != "v1.6.0" || catalog.Floor != nodeVersionFloor {
+		t.Fatalf("unexpected stale catalog: %#v", catalog)
+	}
+
+	fresh := &GitHubUpdateChecker{APIBase: server.URL, RawBase: server.URL, HTTPClient: server.Client(), Now: func() time.Time { return now }}
+	if _, err := fresh.Builds(ctx, NodeUpdateRepo); err == nil {
+		t.Fatal("without an earlier catalog the failure must be returned")
 	}
 }
