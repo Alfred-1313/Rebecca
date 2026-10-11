@@ -507,3 +507,102 @@ func TestGatewayProxyProtocolPolicyRequireRejectsDirectConnections(t *testing.T)
 		t.Fatalf("expected direct request without PROXY header to fail under policy 'require', but got status %d", resp.StatusCode)
 	}
 }
+
+func startProxyProtocolGateway(t *testing.T, cfg Config) string {
+	t.Helper()
+	cfg.Addr = "127.0.0.1:0"
+	cfg.ProxyProtocol = true
+	cfg.CertificateBase = t.TempDir()
+	cfg.APIHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runErrCh := make(chan error, 1)
+	go func() {
+		runErrCh <- server.Run()
+	}()
+	t.Cleanup(func() {
+		_ = server.Shutdown(context.Background())
+	})
+	select {
+	case <-server.Ready():
+	case err := <-runErrCh:
+		t.Fatalf("server failed before ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for server to become ready")
+	}
+	addrs := server.ListenAddrs()
+	if len(addrs) == 0 {
+		t.Fatal("no active listener addresses")
+	}
+	return addrs[0]
+}
+
+func getThroughProxyProtocol(t *testing.T, addr string, prefix string) (*http.Response, error) {
+	t.Helper()
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	request := "GET /api/test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+	if _, err := conn.Write([]byte(prefix + request)); err != nil {
+		t.Fatalf("failed to write request: %v", err)
+	}
+	return http.ReadResponse(bufio.NewReader(conn), nil)
+}
+
+func TestGatewayProxyProtocolIgnoresHeaderFromUntrustedPeer(t *testing.T) {
+	addr := startProxyProtocolGateway(t, Config{ProxyProtocolPolicy: "use", ProxyProtocolTrusted: []string{"10.0.0.0/8"}})
+	if resp, err := getThroughProxyProtocol(t, addr, "PROXY TCP4 198.51.100.33 127.0.0.1 54321 8000\r\n"); err == nil {
+		resp.Body.Close()
+		t.Fatalf("PROXY header from an untrusted peer was accepted: status %d", resp.StatusCode)
+	}
+}
+
+func TestGatewayProxyProtocolServesDirectPeerWithoutHeader(t *testing.T) {
+	addr := startProxyProtocolGateway(t, Config{ProxyProtocolPolicy: "use", ProxyProtocolTrusted: []string{"10.0.0.0/8"}})
+	resp, err := getThroughProxyProtocol(t, addr, "")
+	if err != nil {
+		t.Fatalf("direct request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("direct request status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestGatewayProxyProtocolRequireDropsUntrustedPeers(t *testing.T) {
+	addr := startProxyProtocolGateway(t, Config{ProxyProtocolPolicy: "require", ProxyProtocolTrusted: []string{"10.0.0.0/8"}})
+	if resp, err := getThroughProxyProtocol(t, addr, ""); err == nil {
+		resp.Body.Close()
+		t.Fatalf("headerless request from an untrusted peer was served: status %d", resp.StatusCode)
+	}
+}
+
+func TestGatewayProxyProtocolRequireAcceptsTrustedPeer(t *testing.T) {
+	addr := startProxyProtocolGateway(t, Config{ProxyProtocolPolicy: "require", ProxyProtocolTrusted: []string{"127.0.0.1"}})
+	resp, err := getThroughProxyProtocol(t, addr, "PROXY TCP4 198.51.100.33 127.0.0.1 54321 8000\r\n")
+	if err != nil {
+		t.Fatalf("trusted peer with header failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("trusted peer status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestNewServerRejectsInvalidProxyProtocolTrustedRange(t *testing.T) {
+	_, err := NewServer(Config{
+		Addr:                 "127.0.0.1:0",
+		ProxyProtocol:        true,
+		ProxyProtocolTrusted: []string{"not-a-range"},
+		CertificateBase:      t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("an invalid trusted PROXY range must fail at startup")
+	}
+}

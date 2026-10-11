@@ -17,14 +17,15 @@ import (
 )
 
 type Server struct {
-	cfg        Config
-	server     *http.Server
-	servers    []*http.Server
-	tls        *tls.Config
-	listeners  []net.Listener
-	listenerMu sync.Mutex
-	readyOnce  sync.Once
-	readyCh    chan struct{}
+	cfg         Config
+	server      *http.Server
+	servers     []*http.Server
+	tls         *tls.Config
+	listeners   []net.Listener
+	listenerMu  sync.Mutex
+	readyOnce   sync.Once
+	readyCh     chan struct{}
+	proxyPolicy proxyproto.ConnPolicyFunc
 }
 
 type hostAwareHandler interface {
@@ -94,13 +95,33 @@ func NewServer(cfg Config) (*Server, error) {
 		servers = append(servers, newHTTPServer(addr, mux))
 	}
 
+	var proxyPolicy proxyproto.ConnPolicyFunc
+	if cfg.ProxyProtocol {
+		proxyPolicy, err = proxyProtocolConnPolicy(cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &Server{
-		cfg:     cfg,
-		server:  mainServer,
-		servers: servers,
-		tls:     tlsConfig,
-		readyCh: make(chan struct{}),
+		cfg:         cfg,
+		server:      mainServer,
+		servers:     servers,
+		tls:         tlsConfig,
+		readyCh:     make(chan struct{}),
+		proxyPolicy: proxyPolicy,
 	}, nil
+}
+
+func proxyProtocolConnPolicy(cfg Config) (proxyproto.ConnPolicyFunc, error) {
+	trusted := cfg.ProxyProtocolTrusted
+	if len(trusted) == 0 {
+		trusted = defaultProxyProtocolTrusted
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.ProxyProtocolPolicy), "require") {
+		return proxyproto.TrustProxyHeaderFromRanges(trusted)
+	}
+	return proxyproto.PolicyFromRanges(trusted, proxyproto.USE, proxyproto.REJECT)
 }
 
 func (s *Server) Ready() <-chan struct{} {
@@ -204,20 +225,11 @@ func (s *Server) Run() error {
 		ln := listeners[i]
 		var listener net.Listener = ln
 		if s.cfg.ProxyProtocol {
-			ppListener := &proxyproto.Listener{
+			listener = &proxyproto.Listener{
 				Listener:          ln,
 				ReadHeaderTimeout: 10 * time.Second,
+				ConnPolicy:        s.proxyPolicy,
 			}
-			if strings.EqualFold(strings.TrimSpace(s.cfg.ProxyProtocolPolicy), "require") {
-				ppListener.ConnPolicy = func(_ proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
-					return proxyproto.REQUIRE, nil
-				}
-			} else {
-				ppListener.ConnPolicy = func(_ proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
-					return proxyproto.USE, nil
-				}
-			}
-			listener = ppListener
 		}
 
 		go func() {

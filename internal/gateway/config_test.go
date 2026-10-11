@@ -149,3 +149,17 @@ func writeTestFile(t *testing.T, path string, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+func TestLoadConfigProxyProtocolTrusted(t *testing.T) {
+	t.Setenv("REBECCA_PROXY_PROTOCOL_TRUSTED", "")
+	cfg := LoadConfig()
+	if len(cfg.ProxyProtocolTrusted) == 0 || cfg.ProxyProtocolTrusted[0] != "127.0.0.0/8" {
+		t.Fatalf("default trusted ranges = %v, want loopback first", cfg.ProxyProtocolTrusted)
+	}
+
+	t.Setenv("REBECCA_PROXY_PROTOCOL_TRUSTED", " 203.0.113.0/24, 192.0.2.7 ,")
+	cfg = LoadConfig()
+	if len(cfg.ProxyProtocolTrusted) != 2 || cfg.ProxyProtocolTrusted[0] != "203.0.113.0/24" || cfg.ProxyProtocolTrusted[1] != "192.0.2.7" {
+		t.Fatalf("trusted ranges = %v, want the two configured entries", cfg.ProxyProtocolTrusted)
+	}
+}
