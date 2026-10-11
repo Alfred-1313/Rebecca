@@ -1,4 +1,5 @@
 {
+	"services.searchServices": "Search services",
 	"notifications.menu": "Notifications",
 	"notifications.description": "Messages from administrators and automatic alerts about your account and the panel.",
 	"notifications.tabs.inbox": "Inbox",
