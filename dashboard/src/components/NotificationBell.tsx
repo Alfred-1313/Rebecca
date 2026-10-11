@@ -55,7 +55,8 @@ export const NotificationBell = () => {
 						aria-label={t("notifications.bell.label")}
 						icon={<BellIcon width={18} height={18} />}
 						size="sm"
-						variant="outline"
+						variant="ghost"
+						borderRadius="full"
 					/>
 					{unread > 0 && (
 						<Badge

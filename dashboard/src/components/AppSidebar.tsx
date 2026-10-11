@@ -204,11 +204,13 @@ export const AppSidebar: FC<AppSidebarProps> = ({
 	}, [checkTutorialUpdates]);
 
 	const baseSettingsSubItems: SidebarSubItems = [
-		{
-			title: "errors",
-			url: "/errors",
-			icon: InsightsIconStyled,
-		},
+		isPrivilegedAdmin
+			? {
+					title: "errors",
+					url: "/errors",
+					icon: InsightsIconStyled,
+				}
+			: null,
 		sectionAccess?.[AdminSection.Hosts]
 			? {
 					title: t("header.hostSettings"),
