@@ -21,6 +21,7 @@ import {
 	Cog8ToothIcon,
 	CommandLineIcon,
 	DocumentDuplicateIcon,
+	BellIcon,
 	DocumentTextIcon,
 	EyeIcon,
 	HomeIcon,
@@ -72,6 +73,7 @@ const HostsIconStyled = chakra(LinkIcon, iconProps);
 const HAProxyIconStyled = chakra(ArrowsRightLeftIcon, iconProps);
 const UsageIconStyled = chakra(ChartBarIcon, iconProps);
 const MyAccountIconStyled = chakra(UserCircleIcon, iconProps);
+const NotificationIconStyled = chakra(BellIcon, iconProps);
 const InsightsIconStyled = chakra(EyeIcon, iconProps);
 const TutorialIconStyled = chakra(BookOpenIcon, iconProps);
 const XraySettingsIconStyled = chakra(WrenchScrewdriverIcon, iconProps);
@@ -350,6 +352,12 @@ export const AppSidebar: FC<AppSidebarProps> = ({
 		});
 	}
 
+	items.push({
+		title: t("notifications.menu"),
+		url: "/notifications",
+		icon: NotificationIconStyled,
+	});
+
 	if (canViewUsage) {
 		items.push({
 			title: t("usage.menu"),
@@ -404,6 +412,7 @@ export const AppSidebar: FC<AppSidebarProps> = ({
 				pickDirect("/admins"),
 				pickDirect("/usage"),
 				pickDirect("/myaccount"),
+				pickDirect("/notifications"),
 			],
 		},
 		{

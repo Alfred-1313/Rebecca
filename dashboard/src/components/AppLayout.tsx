@@ -74,6 +74,7 @@ import { ReactComponent as ImperialIranFlag } from "../assets/imperial-iran-flag
 import { AppSidebar } from "./AppSidebar";
 import { GitHubStars } from "./GitHubStars";
 import { HeaderCalendar } from "./HeaderCalendar";
+import { NotificationBell } from "./NotificationBell";
 import ThemeSelector from "./ThemeSelector";
 import { SponsorCarousel } from "./SponsorCarousel";
 
@@ -983,6 +984,7 @@ export function AppLayout() {
 						</HStack>
 						<HStack spacing={2} alignItems="center" flexShrink={0}>
 							<HeaderCalendar />
+							{getUserIsSuccess && userData.username && <NotificationBell />}
 							<GitHubStars />
 
 							{/* User Menu */}
