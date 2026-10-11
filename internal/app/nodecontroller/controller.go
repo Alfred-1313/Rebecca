@@ -474,8 +474,13 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 	groups := []operationGroup{}
 	groupIndexes := map[string]int{}
 	globalCoalesced := []OperationRow{}
+	runtimeUserOperations := []OperationRow{}
 	for _, operation := range operations {
 		if operation.NodeID.Valid && foldedNodes[operation.NodeID.Int64] && isRuntimeUserOperation(operation.OperationType) {
+			continue
+		}
+		if operation.NodeID.Valid && operation.UserID.Valid && isRuntimeUserOperation(operation.OperationType) {
+			runtimeUserOperations = append(runtimeUserOperations, operation)
 			continue
 		}
 		if canCoalesceRuntimeSyncOperation(operation) && !operation.NodeID.Valid {
@@ -490,6 +495,14 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 			groups = append(groups, operationGroup{key: key})
 		}
 		groups[idx].operations = append(groups[idx].operations, operation)
+	}
+	userResult, err := c.applyRuntimeUserOperationBatch(ctx, runtimeUserOperations)
+	result.Processed += userResult.Processed
+	result.Done += userResult.Done
+	result.Retrying += userResult.Retrying
+	result.Failed += userResult.Failed
+	if err != nil {
+		return result, err
 	}
 	if err := c.processOrderedOperationGroups(ctx, groups, blockedNodes, &result, maxConcurrentSingleNodeOperations); err != nil {
 		return result, err
@@ -516,37 +529,6 @@ func bulkRuntimeUserOperationNodes(operations []OperationRow) map[int64]bool {
 		}
 	}
 	return result
-}
-
-func (c Controller) ProcessRuntimeUserOperations(ctx context.Context, req ProcessUserOperationsRequest) (ProcessOperationsResult, error) {
-	if req.UserID <= 0 {
-		return ProcessOperationsResult{}, nil
-	}
-	operations, err := c.repo.PendingRuntimeUserOperations(ctx, req.UserID, req.Limit)
-	if err != nil {
-		return ProcessOperationsResult{}, err
-	}
-	result := ProcessOperationsResult{}
-	if len(operations) == 0 {
-		return result, nil
-	}
-	blockedNodes := map[int64]bool{}
-	groups := []operationGroup{}
-	groupIndexes := map[string]int{}
-	for _, operation := range operations {
-		key := operationSingleKey(operation)
-		idx, ok := groupIndexes[key]
-		if !ok {
-			idx = len(groups)
-			groupIndexes[key] = idx
-			groups = append(groups, operationGroup{key: key})
-		}
-		groups[idx].operations = append(groups[idx].operations, operation)
-	}
-	if err := c.processOrderedOperationGroups(ctx, groups, blockedNodes, &result, maxConcurrentRuntimeUserOperations); err != nil {
-		return result, err
-	}
-	return result, nil
 }
 
 type operationGroup struct {
