@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -460,6 +461,20 @@ func (r Repository) OnlineUsernames(ctx context.Context, req UsersListRequest) (
 	return result, rows.Err()
 }
 
+// numericUserIDSearch reports whether a search term is a database user ID,
+// optionally written with a leading '#'.
+func numericUserIDSearch(search string) (int64, bool) {
+	value := strings.TrimPrefix(strings.TrimSpace(search), "#")
+	if value == "" {
+		return 0, false
+	}
+	userID, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || userID <= 0 {
+		return 0, false
+	}
+	return userID, true
+}
+
 func usersOrderSQL(sortOptions []SortOption) string {
 	columns := map[string]string{
 		"username":     "u.username",
@@ -467,6 +482,7 @@ func usersOrderSQL(sortOptions []SortOption) string {
 		"data_limit":   "u.data_limit",
 		"expire":       "u.expire",
 		"created_at":   "u.created_at",
+		"id":           "u.id",
 	}
 	if len(sortOptions) == 0 {
 		return defaultUsersOrder
@@ -564,6 +580,10 @@ func (r Repository) addUsersSearchFilter(filter *usersFilter, search string, opt
 		"u.telegram_id", "u.contact_number",
 	}, search, options)
 	clauses := []string{searchClause}
+	if userID, ok := numericUserIDSearch(search); ok {
+		clauses = append(clauses, "u.id = ?")
+		args = append(args, userID)
+	}
 
 	keyCandidates, uuidCandidates := deriveSearchTokens(search, nil)
 	configUUIDs, configPasswords := extractConfigIdentifiers(search)
