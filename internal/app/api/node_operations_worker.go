@@ -36,6 +36,29 @@ func (s *Server) runNodeOperationsWorker(ctx context.Context) {
 	}
 }
 
+const runtimeUserOperationsInterval = 5 * time.Second
+
+func (s *Server) runRuntimeUserOperationsWorker(ctx context.Context) {
+	timer := time.NewTimer(runtimeUserOperationsInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		workerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		result, err := s.nodeController.ProcessRuntimeUserQueue(workerCtx, defaultNodeOperationsBatchSize)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logging.Warnf(logging.ComponentNode, "user operation queue failed: %v", err)
+		} else if result.Processed > 0 {
+			logging.Debugf(logging.ComponentNode, "user operation queue processed=%d done=%d retrying=%d failed=%d", result.Processed, result.Done, result.Retrying, result.Failed)
+		}
+		timer.Reset(runtimeUserOperationsInterval)
+	}
+}
+
 func (s *Server) processNodeOperations(ctx context.Context) {
 	workerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()

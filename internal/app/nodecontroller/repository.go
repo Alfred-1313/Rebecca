@@ -702,6 +702,46 @@ AND (
 	return result, nil
 }
 
+func (r Repository) PendingRuntimeUserOperationsAll(ctx context.Context, limit int) ([]OperationRow, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > maxPendingOperationsLimit {
+		limit = maxPendingOperationsLimit
+	}
+	retryCutoff := r.timeArg(time.Now().UTC().Add(-operationRetryBackoff))
+	rows, err := r.db.QueryContext(ctx, `
+SELECT no.id, no.operation_type, no.node_id, no.user_id, no.payload, no.attempts
+FROM node_operations no
+JOIN nodes n ON n.id = no.node_id
+WHERE (
+    no.status = 'pending'
+    OR (no.status = 'retrying' AND no.updated_at <= ?)
+  )
+  AND no.user_id IS NOT NULL
+  AND no.node_id IS NOT NULL
+  AND no.operation_type IN ('add_user', 'update_user', 'remove_user', 'disable_user', 'enable_user')
+  AND LOWER(COALESCE(n.status, '')) = 'connected'
+ORDER BY no.id
+LIMIT ?`, retryCutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]OperationRow, 0, limit)
+	for rows.Next() {
+		var row OperationRow
+		var payload []byte
+		if err := rows.Scan(&row.ID, &row.OperationType, &row.NodeID, &row.UserID, &payload, &row.Attempts); err != nil {
+			return nil, err
+		}
+		row.Payload = append(row.Payload[:0], payload...)
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
 func (r Repository) PendingRuntimeUserOperationsForUsers(ctx context.Context, userIDs []int64, limit int) ([]OperationRow, error) {
 	userIDs = uniqueInt64s(userIDs)
 	if len(userIDs) == 0 {

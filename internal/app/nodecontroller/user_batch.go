@@ -38,6 +38,14 @@ func (c Controller) ProcessRuntimeUserOperationsForUsers(ctx context.Context, us
 	return c.applyRuntimeUserOperationBatch(ctx, operations)
 }
 
+func (c Controller) ProcessRuntimeUserQueue(ctx context.Context, limit int) (ProcessOperationsResult, error) {
+	operations, err := c.repo.PendingRuntimeUserOperationsAll(ctx, limit)
+	if err != nil {
+		return ProcessOperationsResult{}, err
+	}
+	return c.applyRuntimeUserOperationBatch(ctx, operations)
+}
+
 func (c Controller) applyRuntimeUserOperationBatch(ctx context.Context, operations []OperationRow) (ProcessOperationsResult, error) {
 	result := ProcessOperationsResult{}
 	byNode := map[int64]map[int64][]OperationRow{}
