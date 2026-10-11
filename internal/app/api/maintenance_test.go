@@ -221,12 +221,12 @@ func TestNodeUpdateTargetRefusesDowngrades(t *testing.T) {
 		}},
 		&recordingScheduler{},
 	)
-	if err := server.checkNodeUpdateTarget(context.Background(), 1, "", "v1.5.0"); err == nil {
+	if _, err := server.resolveNodeUpdateVersion(context.Background(), 1, "", "v1.5.0"); err == nil {
 		t.Fatal("a node update below the node floor must be refused")
 	} else if status, _ := systemapp.HTTPStatus(err); status != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", status)
 	}
-	if err := server.checkNodeUpdateTarget(context.Background(), 1, "", "v1.6.0"); err != nil {
+	if _, err := server.resolveNodeUpdateVersion(context.Background(), 1, "", "v1.6.0"); err != nil {
 		t.Fatalf("a node update to the floor must be allowed: %v", err)
 	}
 }

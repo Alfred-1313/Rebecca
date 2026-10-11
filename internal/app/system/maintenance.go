@@ -168,11 +168,12 @@ func (s *MaintenanceService) Update(ctx context.Context, req MaintenanceUpdateRe
 	if err := requireBinaryRuntime(s.Runtime.Info()); err != nil {
 		return MaintenanceOperationSnapshot{}, err
 	}
-	args, err := BuildRebeccaUpdateArgs(req.Channel, req.Version)
+	version, err := ResolveUpdateVersion(ctx, s.Updates, PanelUpdateRepo, req.Channel, req.Version, s.Runtime.Info().Channel)
 	if err != nil {
 		return MaintenanceOperationSnapshot{}, err
 	}
-	if err := ValidateUpdateTarget(ctx, s.Updates, PanelUpdateRepo, req.Channel, req.Version, s.Runtime.Info().Channel); err != nil {
+	args, err := BuildRebeccaUpdateArgs(req.Channel, version)
+	if err != nil {
 		return MaintenanceOperationSnapshot{}, err
 	}
 	return s.startOperation("update", args, "Preparing panel update")
@@ -198,9 +199,28 @@ func UpdateFollowsCurrentChannel(channel string, version string) bool {
 // target runs on. It is needed when a request names no channel, and an unknown
 // value fails closed.
 func ValidateUpdateTarget(ctx context.Context, checker UpdateChecker, repo string, channel string, version string, currentChannel string) error {
+	_, _, err := resolveUpdateTarget(ctx, checker, repo, channel, version, currentChannel)
+	return err
+}
+
+func ResolveUpdateVersion(ctx context.Context, checker UpdateChecker, repo string, channel string, version string, currentChannel string) (string, error) {
+	if _, err := BuildRebeccaUpdateArgs(channel, version); err != nil {
+		return "", err
+	}
+	target, catalog, err := resolveUpdateTarget(ctx, checker, repo, channel, version, currentChannel)
+	if err != nil {
+		return "", err
+	}
+	if target == "latest" {
+		return newestStableVersion(catalog.Stable), nil
+	}
+	return version, nil
+}
+
+func resolveUpdateTarget(ctx context.Context, checker UpdateChecker, repo string, channel string, version string, currentChannel string) (string, BuildCatalog, error) {
 	catalog, err := checker.Builds(ctx, repo)
 	if err != nil {
-		return MaintenanceError{Status: http.StatusBadGateway, Detail: "Could not verify the update target: " + err.Error()}
+		return "", BuildCatalog{}, MaintenanceError{Status: http.StatusBadGateway, Detail: "Could not verify the update target: " + err.Error()}
 	}
 	refuse := MaintenanceError{Status: http.StatusConflict, Detail: "This build is older than the minimum version this panel allows; downgrades are not allowed"}
 	target := strings.ToLower(strings.TrimSpace(version))
@@ -219,28 +239,38 @@ func ValidateUpdateTarget(ctx context.Context, checker UpdateChecker, repo strin
 		case "latest", "stable", "release":
 			target = "latest"
 		default:
-			return MaintenanceError{Status: http.StatusUnprocessableEntity, Detail: "The current update channel is unknown; choose a channel or version"}
+			return "", BuildCatalog{}, MaintenanceError{Status: http.StatusUnprocessableEntity, Detail: "The current update channel is unknown; choose a channel or version"}
 		}
 	}
 	switch {
 	case target == "dev":
 		if len(catalog.Dev) == 0 {
-			return refuse
+			return "", BuildCatalog{}, refuse
 		}
 	case target == "latest":
 		if len(catalog.Stable) == 0 {
-			return refuse
+			return "", BuildCatalog{}, refuse
 		}
 	case strings.HasPrefix(target, "dev-"):
 		if !hasDevBuild(catalog.Dev, target) {
-			return refuse
+			return "", BuildCatalog{}, refuse
 		}
 	default:
 		if !versionAtLeast(target, catalog.Floor) || !hasStableBuild(catalog.Stable, target) {
-			return refuse
+			return "", BuildCatalog{}, refuse
 		}
 	}
-	return nil
+	return target, catalog, nil
+}
+
+func newestStableVersion(builds []BuildVersion) string {
+	newest := ""
+	for _, build := range builds {
+		if newest == "" || versionAtLeast(build.Version, newest) {
+			newest = build.Version
+		}
+	}
+	return newest
 }
 
 func hasDevBuild(builds []BuildVersion, target string) bool {

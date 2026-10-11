@@ -84,6 +84,28 @@ func TestNodeUpdatesUseTheNodeFloor(t *testing.T) {
 	}
 }
 
+func TestResolveUpdateVersionPinsLatestToNewestListedRelease(t *testing.T) {
+	checker := fakeBuildCatalog{catalog: BuildCatalog{
+		Floor:  versionSwitchFloor,
+		Stable: []BuildVersion{{Version: "v1.6.0", Channel: "stable"}, {Version: "v1.6.2", Channel: "stable"}, {Version: "v1.6.1", Channel: "stable"}},
+	}}
+	ctx := context.Background()
+	for _, tc := range []struct{ channel, version, current string }{
+		{"", "latest", ""},
+		{"stable", "", ""},
+		{"", "", "stable"},
+	} {
+		got, err := ResolveUpdateVersion(ctx, checker, PanelUpdateRepo, tc.channel, tc.version, tc.current)
+		if err != nil || got != "v1.6.2" {
+			t.Fatalf("ResolveUpdateVersion(channel=%q, version=%q, current=%q) = %q, %v; want v1.6.2", tc.channel, tc.version, tc.current, got, err)
+		}
+	}
+	got, err := ResolveUpdateVersion(ctx, checker, PanelUpdateRepo, "", "v1.6.1", "")
+	if err != nil || got != "v1.6.1" {
+		t.Fatalf("explicit build = %q, %v; want v1.6.1", got, err)
+	}
+}
+
 func TestUpdateFollowsCurrentChannel(t *testing.T) {
 	if !UpdateFollowsCurrentChannel("", "") || !UpdateFollowsCurrentChannel("current", "") {
 		t.Fatal("an empty or current channel request must follow the running channel")

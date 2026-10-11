@@ -282,10 +282,12 @@ func (s *Server) handleNodesServiceUpdate(w http.ResponseWriter, r *http.Request
 			writeControllerError(w, err)
 			return
 		}
-		if err := s.checkNodeUpdateTarget(r.Context(), target.ID, target.Channel, target.Version); err != nil {
+		version, err := s.resolveNodeUpdateVersion(r.Context(), target.ID, target.Channel, target.Version)
+		if err != nil {
 			writeMaintenanceError(w, err)
 			return
 		}
+		target.Version = version
 		targets = append(targets, target)
 		names = append(names, name)
 	}
@@ -673,7 +675,8 @@ func (s *Server) handleNodeServiceUpdate(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.checkNodeUpdateTarget(r.Context(), nodeID, payload.Channel, payload.Version); err != nil {
+	version, err := s.resolveNodeUpdateVersion(r.Context(), nodeID, payload.Channel, payload.Version)
+	if err != nil {
 		writeMaintenanceError(w, err)
 		return
 	}
@@ -682,7 +685,7 @@ func (s *Server) handleNodeServiceUpdate(w http.ResponseWriter, r *http.Request,
 	result, err := s.nodeController.UpdateService(ctx, nodecontroller.Request{
 		NodeID:  nodeID,
 		Channel: payload.Channel,
-		Version: payload.Version,
+		Version: version,
 	})
 	if err != nil {
 		writeControllerError(w, err)

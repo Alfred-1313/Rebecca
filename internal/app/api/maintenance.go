@@ -168,9 +168,9 @@ func writeMaintenanceError(w http.ResponseWriter, err error) {
 	writeError(w, status, detail)
 }
 
-// checkNodeUpdateTarget refuses a node update to any build the panel does not list.
+// resolveNodeUpdateVersion refuses a node update to any build the panel does not list.
 // A request that names no build or channel follows the node's live channel.
-func (s *Server) checkNodeUpdateTarget(ctx context.Context, nodeID int64, channel string, version string) error {
+func (s *Server) resolveNodeUpdateVersion(ctx context.Context, nodeID int64, channel string, version string) (string, error) {
 	currentChannel := ""
 	if systemapp.UpdateFollowsCurrentChannel(channel, version) {
 		item, err := s.nodeController.Get(ctx, nodecontroller.Request{NodeID: nodeID})
@@ -179,11 +179,11 @@ func (s *Server) checkNodeUpdateTarget(ctx context.Context, nodeID int64, channe
 			if errors.Is(err, sql.ErrNoRows) {
 				status = http.StatusNotFound
 			}
-			return systemapp.MaintenanceError{Status: status, Detail: err.Error()}
+			return "", systemapp.MaintenanceError{Status: status, Detail: err.Error()}
 		}
 		if item.NodeUpdateChannel != nil {
 			currentChannel = *item.NodeUpdateChannel
 		}
 	}
-	return systemapp.ValidateUpdateTarget(ctx, s.maintenanceService().Updates, systemapp.NodeUpdateRepo, channel, version, currentChannel)
+	return systemapp.ResolveUpdateVersion(ctx, s.maintenanceService().Updates, systemapp.NodeUpdateRepo, channel, version, currentChannel)
 }
