@@ -23,30 +23,31 @@ import (
 )
 
 type Controller struct {
-	repo              Repository
-	outboundSubs      outboundsubapp.Service
-	nodeLocks         *sync.Map
-	nodeClients       *sync.Map
-	healthFailures    *sync.Map
-	runtimeConfigPrep chan struct{}
+	repo               Repository
+	outboundSubs       outboundsubapp.Service
+	nodeLocks          *sync.Map
+	nodeClients        *sync.Map
+	healthFailures     *sync.Map
+	runtimeDiagnostics *sync.Map
+	runtimeConfigPrep  chan struct{}
 }
 
 const (
 	maxConcurrentSingleNodeOperations  = 8
 	maxConcurrentRuntimeUserOperations = 32
-	bulkRuntimeUserOperationThreshold  = 32
 	nodeHealthFailureThreshold         = 3
 	maxNodeOperationID                 = int64(1<<63 - 1)
 )
 
 func NewController(repo Repository) Controller {
 	return Controller{
-		repo:              repo,
-		outboundSubs:      outboundsubapp.NewService(repo.db, repo.dialect),
-		nodeLocks:         &sync.Map{},
-		nodeClients:       &sync.Map{},
-		healthFailures:    &sync.Map{},
-		runtimeConfigPrep: make(chan struct{}, 1),
+		repo:               repo,
+		outboundSubs:       outboundsubapp.NewService(repo.db, repo.dialect),
+		nodeLocks:          &sync.Map{},
+		nodeClients:        &sync.Map{},
+		healthFailures:     &sync.Map{},
+		runtimeDiagnostics: &sync.Map{},
+		runtimeConfigPrep:  make(chan struct{}, 1),
 	}
 }
 
@@ -100,13 +101,22 @@ func (c Controller) lockRuntimeConfigPreparation(ctx context.Context) (func(), e
 }
 
 func (c Controller) lockNode(nodeID int64) func() {
+	unlock, _ := c.lockNodeContext(context.Background(), nodeID)
+	return unlock
+}
+
+func (c Controller) lockNodeContext(ctx context.Context, nodeID int64) (func(), error) {
 	if c.nodeLocks == nil {
-		return func() {}
+		return func() {}, nil
 	}
-	value, _ := c.nodeLocks.LoadOrStore(nodeID, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
-	lock.Lock()
-	return lock.Unlock
+	value, _ := c.nodeLocks.LoadOrStore(nodeID, make(chan struct{}, 1))
+	slot := value.(chan struct{})
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (c Controller) PrepareStartupFullSync(ctx context.Context) (int, error) {
@@ -263,6 +273,7 @@ func (c Controller) Health(ctx context.Context, req Request) (RuntimeResult, err
 		return RuntimeResult{}, err
 	}
 	result.Status = "connected"
+	c.rememberRuntimeDiagnostics(result)
 	return result, nil
 }
 
@@ -287,6 +298,7 @@ func (c Controller) Metrics(ctx context.Context, req Request) (RuntimeResult, er
 		return RuntimeResult{}, err
 	}
 	result.Status = "connected"
+	c.rememberRuntimeDiagnostics(result)
 	return result, nil
 }
 
@@ -298,7 +310,9 @@ func (c Controller) RecoverNodes(ctx context.Context, req RecoverNodesRequest) (
 	result := RecoverNodesResult{Checked: len(nodeIDs)}
 	for _, nodeID := range nodeIDs {
 		metricsCtx, cancel := WithDefaultTimeout(ctx)
-		_, err := c.Connect(metricsCtx, Request{NodeID: nodeID})
+		// A failed health poll is not a request to replace the live runtime.
+		// Restore control-plane health only; pending changes stay in the queue.
+		_, err := c.Health(metricsCtx, Request{NodeID: nodeID})
 		cancel()
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("node %d: %v", nodeID, err))
@@ -459,17 +473,13 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 	}
 	result := ProcessOperationsResult{}
 	blockedNodes := map[int64]bool{}
-	foldedNodes := bulkRuntimeUserOperationNodes(operations)
-	for nodeID := range foldedNodes {
-		if err := c.repo.QueueSyncConfig(ctx, &nodeID, nil); err != nil {
-			return result, err
-		}
-	}
 	groups := []operationGroup{}
 	groupIndexes := map[string]int{}
 	globalCoalesced := []OperationRow{}
+	runtimeUserOperations := []OperationRow{}
 	for _, operation := range operations {
-		if operation.NodeID.Valid && foldedNodes[operation.NodeID.Int64] && isRuntimeUserOperation(operation.OperationType) {
+		if operation.NodeID.Valid && operation.UserID.Valid && isRuntimeUserOperation(operation.OperationType) {
+			runtimeUserOperations = append(runtimeUserOperations, operation)
 			continue
 		}
 		if canCoalesceRuntimeSyncOperation(operation) && !operation.NodeID.Valid {
@@ -485,6 +495,14 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 		}
 		groups[idx].operations = append(groups[idx].operations, operation)
 	}
+	userResult, err := c.applyRuntimeUserOperationBatch(ctx, runtimeUserOperations)
+	result.Processed += userResult.Processed
+	result.Done += userResult.Done
+	result.Retrying += userResult.Retrying
+	result.Failed += userResult.Failed
+	if err != nil {
+		return result, err
+	}
 	if err := c.processOrderedOperationGroups(ctx, groups, blockedNodes, &result, maxConcurrentSingleNodeOperations); err != nil {
 		return result, err
 	}
@@ -492,53 +510,6 @@ func (c Controller) ProcessQueue(ctx context.Context, req ProcessOperationsReque
 		if err := c.processCoalescedOperations(ctx, globalCoalesced, blockedNodes, &result); err != nil {
 			return result, err
 		}
-	}
-	return result, nil
-}
-
-func bulkRuntimeUserOperationNodes(operations []OperationRow) map[int64]bool {
-	counts := map[int64]int{}
-	for _, operation := range operations {
-		if operation.NodeID.Valid && isRuntimeUserOperation(operation.OperationType) {
-			counts[operation.NodeID.Int64]++
-		}
-	}
-	result := map[int64]bool{}
-	for nodeID, count := range counts {
-		if count > bulkRuntimeUserOperationThreshold {
-			result[nodeID] = true
-		}
-	}
-	return result
-}
-
-func (c Controller) ProcessRuntimeUserOperations(ctx context.Context, req ProcessUserOperationsRequest) (ProcessOperationsResult, error) {
-	if req.UserID <= 0 {
-		return ProcessOperationsResult{}, nil
-	}
-	operations, err := c.repo.PendingRuntimeUserOperations(ctx, req.UserID, req.Limit)
-	if err != nil {
-		return ProcessOperationsResult{}, err
-	}
-	result := ProcessOperationsResult{}
-	if len(operations) == 0 {
-		return result, nil
-	}
-	blockedNodes := map[int64]bool{}
-	groups := []operationGroup{}
-	groupIndexes := map[string]int{}
-	for _, operation := range operations {
-		key := operationSingleKey(operation)
-		idx, ok := groupIndexes[key]
-		if !ok {
-			idx = len(groups)
-			groupIndexes[key] = idx
-			groups = append(groups, operationGroup{key: key})
-		}
-		groups[idx].operations = append(groups[idx].operations, operation)
-	}
-	if err := c.processOrderedOperationGroups(ctx, groups, blockedNodes, &result, maxConcurrentRuntimeUserOperations); err != nil {
-		return result, err
 	}
 	return result, nil
 }
@@ -1112,6 +1083,7 @@ func (c Controller) finishRuntime(ctx context.Context, node NodeRow, state *node
 		return RuntimeResult{}, err
 	}
 	result.Status = "connected"
+	c.rememberRuntimeDiagnostics(result)
 	return result, nil
 }
 

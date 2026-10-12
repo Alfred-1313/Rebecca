@@ -827,7 +827,7 @@ WHERE id = ?`,
 		value := adminServiceUsage[key]
 		if _, err := tx.ExecContext(
 			ctx,
-			`UPDATE admins_services
+			`UPDATE service_admins
 SET used_traffic = COALESCE(used_traffic, 0) + ?,
     lifetime_used_traffic = COALESCE(lifetime_used_traffic, 0) + ?,
     updated_at = ?
@@ -1068,7 +1068,7 @@ func (r Repository) enforceUsageLifecycle(ctx context.Context, tx *sql.Tx, userI
        COALESCE(used_traffic, 0),
        data_limit,
        expire,
-	       COALESCE((SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id), online_at),
+	       (SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id),
        on_hold_expire_duration,
        on_hold_timeout,
        edit_at,
@@ -1360,11 +1360,11 @@ func (r Repository) incrementSystemUsage(ctx context.Context, tx *sql.Tx, up int
 	if r.dialect == "sqlite" {
 		_, err := tx.ExecContext(
 			ctx,
-			`INSERT INTO system (id, uplink, downlink)
+			`INSERT INTO master_usage (id, uplink, downlink)
 VALUES (1, ?, ?)
 ON CONFLICT(id) DO UPDATE
-SET uplink = COALESCE(system.uplink, 0) + excluded.uplink,
-    downlink = COALESCE(system.downlink, 0) + excluded.downlink`,
+SET uplink = COALESCE(master_usage.uplink, 0) + excluded.uplink,
+    downlink = COALESCE(master_usage.downlink, 0) + excluded.downlink`,
 			up,
 			down,
 		)
@@ -1372,7 +1372,7 @@ SET uplink = COALESCE(system.uplink, 0) + excluded.uplink,
 	}
 	_, err := tx.ExecContext(
 		ctx,
-		"INSERT INTO `system` (id, uplink, downlink)\n"+
+		"INSERT INTO `master_usage` (id, uplink, downlink)\n"+
 			`VALUES (1, ?, ?)
 ON DUPLICATE KEY UPDATE
     uplink = COALESCE(uplink, 0) + VALUES(uplink),
@@ -1826,6 +1826,77 @@ ORDER BY id LIMIT ?`, r.timeArg(cutoff), limit)
 		}
 	}
 	return total, nil
+}
+
+// CompactOldNodeUserUsageDay replaces the oldest complete day before cutoff
+// with one row per user and node while preserving the exact traffic total.
+func (r Repository) CompactOldNodeUserUsageDay(ctx context.Context, cutoff time.Time) (int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	nonMidnight := "TIME(created_at) <> '00:00:00'"
+	if r.dialect == "sqlite" {
+		nonMidnight = "strftime('%H:%M:%S', created_at) <> '00:00:00'"
+	}
+	var oldest any
+	err = tx.QueryRowContext(ctx, `SELECT MIN(created_at)
+FROM node_user_usages
+WHERE created_at < ? AND user_id IS NOT NULL AND node_id IS NOT NULL AND `+nonMidnight, r.timeArg(cutoff)).Scan(&oldest)
+	if err != nil {
+		return 0, err
+	}
+	oldestTime := usageDBTime(oldest)
+	if oldestTime == nil {
+		return 0, nil
+	}
+	dayStart := time.Date(oldestTime.Year(), oldestTime.Month(), oldestTime.Day(), 0, 0, 0, 0, time.UTC)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	rows, err := tx.QueryContext(ctx, `SELECT user_id, node_id, COALESCE(SUM(used_traffic), 0), COUNT(*)
+FROM node_user_usages
+WHERE created_at >= ? AND created_at < ? AND user_id IS NOT NULL AND node_id IS NOT NULL
+GROUP BY user_id, node_id`, r.timeArg(dayStart), r.timeArg(dayEnd))
+	if err != nil {
+		return 0, err
+	}
+	usageByNode := map[int64]map[int64]int64{}
+	sourceRows := 0
+	for rows.Next() {
+		var userID, nodeID, usedTraffic int64
+		var count int
+		if err := rows.Scan(&userID, &nodeID, &usedTraffic, &count); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if usageByNode[nodeID] == nil {
+			usageByNode[nodeID] = map[int64]int64{}
+		}
+		usageByNode[nodeID][userID] = usedTraffic
+		sourceRows += count
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM node_user_usages
+WHERE created_at >= ? AND created_at < ? AND user_id IS NOT NULL AND node_id IS NOT NULL`, r.timeArg(dayStart), r.timeArg(dayEnd)); err != nil {
+		return 0, err
+	}
+	for nodeID, usageByUser := range usageByNode {
+		if err := r.batchUpsertNodeUserUsage(ctx, tx, dayStart, nodeID, usageByUser); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return sourceRows, nil
 }
 
 func groupStagedUsersByNode(rows []stagedUserUsageRow) map[int64][]stagedUserUsageRow {
