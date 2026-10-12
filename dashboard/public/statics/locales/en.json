@@ -1204,6 +1204,8 @@
 	"nodes.nodeUpdateAvailable": "Update available",
 	"confirm": "Confirm",
 	"nodes.ram": "RAM",
+	"nodes.sections.health": "Health",
+	"nodes.sections.resources": "Resources",
 	"nodes.runtime": "Runtime",
 	"network": "Network",
 	"port": "Port",

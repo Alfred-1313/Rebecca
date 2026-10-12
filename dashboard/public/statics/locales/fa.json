@@ -1197,6 +1197,8 @@
 	"nodes.nodeUpdateAvailable": "به‌روزرسانی موجود",
 	"confirm": "تأیید",
 	"nodes.ram": "حافظه رم (RAM)",
+	"nodes.sections.health": "سلامت",
+	"nodes.sections.resources": "منابع",
 	"nodes.runtime": "اجرا",
 	"network": "شبکه",
 	"port": "پورت",
