@@ -149,6 +149,7 @@ describe("mullvad outbound", () => {
 			tag: "Mullvad-1",
 			protocol: "wireguard",
 			settings: {
+				domainStrategy: "ForceIP",
 				secretKey: PRIVATE_KEY,
 				address: ["10.64.0.2/32", "fc00:bbbb:bbbb:bb01::1:1/128"],
 				peers: [{ publicKey: PUBLIC_KEY, endpoint: "192.0.2.10:51820" }],
@@ -163,14 +164,18 @@ describe("mullvad outbound", () => {
 		const previous = {
 			tag: "mullvad",
 			protocol: "wireguard",
+			streamSettings: { sockopt: { mark: 255 } },
 			settings: {
 				secretKey: "old",
 				address: ["10.0.0.1/32"],
 				mtu: 1380,
+				domainStrategy: "ForceIPv4",
 				peers: [{ publicKey: "old", endpoint: "198.51.100.1:51820", keepAlive: 25 }],
 			},
 		};
 		const next = buildMullvadOutbound("mullvad", form, previous);
+		expect(next.streamSettings).toEqual({ sockopt: { mark: 255 } });
+		expect(next.settings.domainStrategy).toBe("ForceIPv4");
 		expect(next.settings.mtu).toBe(1380);
 		expect(next.settings.peers).toEqual([
 			{ publicKey: PUBLIC_KEY, endpoint: "192.0.2.10:51820", keepAlive: 25 },

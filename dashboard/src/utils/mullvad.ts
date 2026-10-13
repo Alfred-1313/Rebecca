@@ -137,9 +137,11 @@ export const buildMullvadOutbound = (
 	form: MullvadForm,
 	previous?: OutboundJson | null,
 ): OutboundJson => ({
+	...previous,
 	tag: tag.trim(),
 	protocol: "wireguard",
 	settings: {
+		domainStrategy: "ForceIP",
 		...previous?.settings,
 		secretKey: form.privateKey.trim(),
 		address: splitAddresses(form.address),
