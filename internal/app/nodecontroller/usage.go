@@ -12,12 +12,14 @@ import (
 	"time"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/rebeccapanel/rebecca/internal/app/nodeclient"
 	nodev1 "github.com/rebeccapanel/rebecca/internal/proto/node/v1"
 )
 
 const (
 	usageCollectionConcurrency = 8
 	usageRPCTimeout            = 45 * time.Second
+	ipLookupScopeCapability    = "ip_scope_lookup"
 )
 
 func (c Controller) CollectUsage(ctx context.Context, req CollectUsageRequest) (CollectUsageResult, error) {
@@ -38,8 +40,13 @@ func (c Controller) CollectUsage(ctx context.Context, req CollectUsageRequest) (
 		return CollectUsageResult{}, err
 	}
 	inboundCoefficients := map[string]float64{}
+	var ipLimitedUserIDs []string
 	if collectUsers {
 		inboundCoefficients, err = c.repo.InboundUsageCoefficients(ctx)
+		if err != nil {
+			return CollectUsageResult{}, err
+		}
+		ipLimitedUserIDs, err = c.repo.IPLimitedUserIDs(ctx)
 		if err != nil {
 			return CollectUsageResult{}, err
 		}
@@ -73,7 +80,7 @@ func (c Controller) CollectUsage(ctx context.Context, req CollectUsageRequest) (
 				return
 			}
 
-			nodeResult := c.collectUsageForNode(ctx, node, collectUsers, collectOutbound, reset, collectorID, inboundCoefficients, persistOptions)
+			nodeResult := c.collectUsageForNode(ctx, node, collectUsers, collectOutbound, reset, collectorID, inboundCoefficients, ipLimitedUserIDs, persistOptions)
 			mu.Lock()
 			mergeCollectUsageResult(&result, nodeResult)
 			mu.Unlock()
@@ -104,6 +111,13 @@ func (c Controller) CollectUsage(ctx context.Context, req CollectUsageRequest) (
 	return result, nil
 }
 
+func ipScopeForNode(client *nodeclient.Client, userIDs []string) *nodev1.IPLookupScope {
+	if !client.Supports(ipLookupScopeCapability) {
+		return nil
+	}
+	return &nodev1.IPLookupScope{Uids: userIDs}
+}
+
 func (c Controller) collectUsageForNode(
 	ctx context.Context,
 	node NodeRow,
@@ -112,6 +126,7 @@ func (c Controller) collectUsageForNode(
 	reset bool,
 	collectorID string,
 	inboundCoefficients map[string]float64,
+	ipLimitedUserIDs []string,
 	persistOptions UsagePersistOptions,
 ) CollectUsageResult {
 	result := CollectUsageResult{Nodes: 1}
@@ -134,6 +149,7 @@ func (c Controller) collectUsageForNode(
 		userBatch, err = client.Usage().CollectUserUsage(rpcCtx, &nodev1.CollectUsageRequest{
 			CollectorId: collectorID,
 			Reset_:      reset,
+			IpScope:     ipScopeForNode(client, ipLimitedUserIDs),
 		})
 		rpcCancel()
 		if err != nil {
