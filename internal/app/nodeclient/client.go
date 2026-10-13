@@ -11,9 +11,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 const MaxMessageSize = 64 << 20
+
+const (
+	CapabilityGzipRequests = "grpc_gzip"
+	CapabilityUsageBundle  = "usage_bundle"
+)
 
 type Client struct {
 	conn        *grpc.ClientConn
@@ -54,6 +60,13 @@ func (c *Client) NodeVersion() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.version
+}
+
+func (c *Client) CallOptions() []grpc.CallOption {
+	if !c.Supports(CapabilityGzipRequests) {
+		return nil
+	}
+	return []grpc.CallOption{grpc.UseCompressor(gzip.Name)}
 }
 
 func (c *Client) Supports(capability string) bool {

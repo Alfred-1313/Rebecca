@@ -14,6 +14,8 @@ import (
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/rebeccapanel/rebecca/internal/app/nodeclient"
 	nodev1 "github.com/rebeccapanel/rebecca/internal/proto/node/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -138,22 +140,23 @@ func (c Controller) collectUsageForNode(
 		return result
 	}
 
-	var userBatch *nodev1.UserUsageBatch
-	var outboundBatch *nodev1.OutboundUsageBatch
 	var userDeltas []UserUsageDelta
 	var outboundDeltas []OutboundUsageDelta
 	var inboundDeltas []InboundUsageDelta
 
+	batches := fetchUsageBatches(ctx, client, usageBatchRequest{
+		collectUsers:     collectUsers,
+		collectOutbound:  collectOutbound,
+		reset:            reset,
+		collectorID:      collectorID,
+		ipLimitedUserIDs: ipLimitedUserIDs,
+	})
+	userBatch := batches.user
+	outboundBatch := batches.outbound
+
 	if collectUsers {
-		rpcCtx, rpcCancel := withUsageRPCTimeout(ctx)
-		userBatch, err = client.Usage().CollectUserUsage(rpcCtx, &nodev1.CollectUsageRequest{
-			CollectorId: collectorID,
-			Reset_:      reset,
-			IpScope:     ipScopeForNode(client, ipLimitedUserIDs),
-		})
-		rpcCancel()
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("node %d user usage: %s", node.ID, err.Error()))
+		if batches.userErr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("node %d user usage: %s", node.ID, batches.userErr.Error()))
 			return result
 		}
 		if strings.TrimSpace(userBatch.GetBatchId()) != "" {
@@ -196,14 +199,8 @@ func (c Controller) collectUsageForNode(
 	}
 
 	if collectOutbound {
-		rpcCtx, rpcCancel := withUsageRPCTimeout(ctx)
-		outboundBatch, err = client.Usage().CollectOutboundUsage(rpcCtx, &nodev1.CollectUsageRequest{
-			CollectorId: collectorID,
-			Reset_:      reset,
-		})
-		rpcCancel()
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("node %d outbound usage: %s", node.ID, err.Error()))
+		if batches.outboundErr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("node %d outbound usage: %s", node.ID, batches.outboundErr.Error()))
 			return result
 		}
 		if strings.TrimSpace(outboundBatch.GetBatchId()) != "" {
@@ -247,6 +244,10 @@ func (c Controller) collectUsageForNode(
 		return result
 	}
 
+	if batches.bundled {
+		ackBundledUsage(ctx, client, node.ID, userBatchID, outboundBatchID, &result)
+		return result
+	}
 	if userBatch != nil && strings.TrimSpace(userBatch.GetBatchId()) != "" {
 		rpcCtx, rpcCancel := WithDefaultTimeout(ctx)
 		ack, ackErr := client.Usage().AckUserUsage(rpcCtx, &nodev1.AckUsageRequest{BatchId: userBatch.GetBatchId()})
@@ -268,6 +269,107 @@ func (c Controller) collectUsageForNode(
 		}
 	}
 	return result
+}
+
+type usageBatchRequest struct {
+	collectUsers     bool
+	collectOutbound  bool
+	reset            bool
+	collectorID      string
+	ipLimitedUserIDs []string
+}
+
+type usageBatches struct {
+	user        *nodev1.UserUsageBatch
+	outbound    *nodev1.OutboundUsageBatch
+	userErr     error
+	outboundErr error
+	bundled     bool
+}
+
+func fetchUsageBatches(ctx context.Context, client *nodeclient.Client, req usageBatchRequest) usageBatches {
+	if client.Supports(nodeclient.CapabilityUsageBundle) {
+		rpcCtx, rpcCancel := withUsageBundleRPCTimeout(ctx)
+		res, err := client.Usage().CollectAllUsage(rpcCtx, &nodev1.CollectAllUsageRequest{
+			CollectorId:  req.collectorID,
+			Reset_:       req.reset,
+			IpScope:      ipScopeForNode(client, req.ipLimitedUserIDs),
+			SkipUsers:    !req.collectUsers,
+			SkipOutbound: !req.collectOutbound,
+		}, client.CallOptions()...)
+		rpcCancel()
+		if status.Code(err) != codes.Unimplemented {
+			return bundledUsageBatches(req, res, err)
+		}
+	}
+	return separateUsageBatches(ctx, client, req)
+}
+
+func bundledUsageBatches(req usageBatchRequest, res *nodev1.CollectAllUsageResponse, err error) usageBatches {
+	batches := usageBatches{bundled: true}
+	if err != nil {
+		if req.collectUsers {
+			batches.userErr = err
+		}
+		if req.collectOutbound {
+			batches.outboundErr = err
+		}
+		return batches
+	}
+	batches.user = res.GetUsers()
+	batches.outbound = res.GetOutbound()
+	if message := res.GetOutboundError(); message != "" {
+		batches.outboundErr = errors.New(message)
+	}
+	return batches
+}
+
+func separateUsageBatches(ctx context.Context, client *nodeclient.Client, req usageBatchRequest) usageBatches {
+	var batches usageBatches
+	if req.collectUsers {
+		rpcCtx, rpcCancel := withUsageRPCTimeout(ctx)
+		batches.user, batches.userErr = client.Usage().CollectUserUsage(rpcCtx, &nodev1.CollectUsageRequest{
+			CollectorId: req.collectorID,
+			Reset_:      req.reset,
+			IpScope:     ipScopeForNode(client, req.ipLimitedUserIDs),
+		}, client.CallOptions()...)
+		rpcCancel()
+		if batches.userErr != nil {
+			return batches
+		}
+	}
+	if req.collectOutbound {
+		rpcCtx, rpcCancel := withUsageRPCTimeout(ctx)
+		batches.outbound, batches.outboundErr = client.Usage().CollectOutboundUsage(rpcCtx, &nodev1.CollectUsageRequest{
+			CollectorId: req.collectorID,
+			Reset_:      req.reset,
+		})
+		rpcCancel()
+	}
+	return batches
+}
+
+func ackBundledUsage(ctx context.Context, client *nodeclient.Client, nodeID int64, userBatchID, outboundBatchID string, result *CollectUsageResult) {
+	if userBatchID == "" && outboundBatchID == "" {
+		return
+	}
+	rpcCtx, rpcCancel := WithDefaultTimeout(ctx)
+	ack, err := client.Usage().AckAllUsage(rpcCtx, &nodev1.AckAllUsageRequest{UserBatchId: userBatchID, OutboundBatchId: outboundBatchID})
+	rpcCancel()
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("node %d ack usage: %s", nodeID, err.Error()))
+		return
+	}
+	if ack.GetUsersAcknowledged() {
+		result.UserAcked++
+	}
+	if ack.GetOutboundAcknowledged() {
+		result.OutboundAcked++
+	}
+}
+
+func withUsageBundleRPCTimeout(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, 2*usageRPCTimeout)
 }
 
 func withUsageRPCTimeout(parent context.Context) (context.Context, context.CancelFunc) {
