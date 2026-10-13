@@ -80,6 +80,9 @@ func (c Controller) CollectUsage(ctx context.Context, req CollectUsageRequest) (
 		}()
 	}
 	wg.Wait()
+	if collectUsers {
+		result.Errors = append(result.Errors, c.applyIPLimitBlocks(ctx, nodes)...)
+	}
 	result.Speeds = mergeUserTrafficSpeeds(result.Speeds)
 	if len(result.Speeds) > 0 {
 		identities, identityErr := c.repo.UserSpeedIdentities(ctx, speedUserIDs(result.Speeds))
@@ -226,14 +229,6 @@ func (c Controller) collectUsageForNode(
 	if err := c.storeCollectedUsageWithRetry(ctx, node, userBatchID, userDeltas, outboundBatchID, outboundDeltas, inboundDeltas, persistOptions); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("node %d DB write: %s", node.ID, err.Error()))
 		return result
-	}
-	if collectUsers {
-		rpcCtx, rpcCancel := WithDefaultTimeout(ctx)
-		err := c.applyIPLimitBlocksForNode(rpcCtx, client, node)
-		rpcCancel()
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("node %d IP limiter: %s", node.ID, err.Error()))
-		}
 	}
 
 	if userBatch != nil && strings.TrimSpace(userBatch.GetBatchId()) != "" {
