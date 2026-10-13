@@ -92,7 +92,7 @@ import {
 } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import { SiNordvpn, SiTorproject } from "react-icons/si";
+import { SiMullvad, SiNordvpn, SiTorproject } from "react-icons/si";
 import { useMutation, useQuery } from "react-query";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { fetch as apiFetch, getAPIErrorMessage } from "service/http";
@@ -132,6 +132,9 @@ const DnsPresetsModal = lazy(async () => ({
 }));
 const FakeDnsModal = lazy(async () => ({
 	default: (await import("../components/FakeDnsModal")).FakeDnsModal,
+}));
+const MullvadModal = lazy(async () => ({
+	default: (await import("../components/MullvadModal")).MullvadModal,
 }));
 const NordVPNModal = lazy(async () => ({
 	default: (await import("../components/NordVPNModal")).NordVPNModal,
@@ -206,6 +209,11 @@ const MoreIconStyled = chakra(EllipsisHorizontalIcon, {
 const NordVPNIconStyled = () => (
 	<Box as="span" display="inline-flex" color="#4687ff">
 		{SiNordvpn({ size: 16, "aria-hidden": true })}
+	</Box>
+);
+const MullvadIconStyled = () => (
+	<Box as="span" display="inline-flex">
+		{SiMullvad({ size: 16, "aria-hidden": true })}
 	</Box>
 );
 const TorIconStyled: FC<{ size?: number }> = ({ size = 16 }) => (
@@ -808,6 +816,11 @@ export const CoreSettingsPage: FC = () => {
 		isOpen: isNordOpen,
 		onOpen: onNordOpen,
 		onClose: onNordClose,
+	} = useDisclosure();
+	const {
+		isOpen: isMullvadOpen,
+		onOpen: onMullvadOpen,
+		onClose: onMullvadClose,
 	} = useDisclosure();
 	const {
 		isOpen: isOutboundSubsOpen,
@@ -3375,6 +3388,21 @@ export const CoreSettingsPage: FC = () => {
 		}
 	};
 
+	const handleMullvadSave = (
+		outbound: OutboundJson,
+		replaceIndex: number | null,
+	) => {
+		const previousTag =
+			replaceIndex === null
+				? ""
+				: String(getOutbounds()[replaceIndex]?.tag ?? "");
+		// a renamed outbound keeps its routing rules and balancers
+		if (previousTag && previousTag !== outbound.tag) {
+			renameOutboundReferences(previousTag, String(outbound.tag));
+		}
+		handleNordSave(outbound, replaceIndex);
+	};
+
 	const handleOutboundSave = (outboundJson: unknown, targetIds: string[]) => {
 		const outbound = outboundJson as OutboundJson;
 		const outbounds = getOutbounds();
@@ -5137,6 +5165,12 @@ export const CoreSettingsPage: FC = () => {
 														NordVPN
 													</MenuItem>
 													<MenuItem
+														icon={<MullvadIconStyled />}
+														onClick={onMullvadOpen}
+													>
+														Mullvad
+													</MenuItem>
+													<MenuItem
 														icon={<TorIconStyled />}
 														isDisabled={isApplyingTorProxy}
 														onClick={onTorProxyOpen}
@@ -5951,6 +5985,15 @@ export const CoreSettingsPage: FC = () => {
 						onClose={handleNordModalClose}
 						initialOutbounds={getOutbounds()}
 						onSave={handleNordSave}
+						onDelete={handleNordDelete}
+					/>
+				)}
+				{isMullvadOpen && (
+					<MullvadModal
+						isOpen={isMullvadOpen}
+						onClose={onMullvadClose}
+						initialOutbounds={getOutbounds()}
+						onSave={handleMullvadSave}
 						onDelete={handleNordDelete}
 					/>
 				)}
