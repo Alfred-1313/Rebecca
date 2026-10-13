@@ -32,6 +32,17 @@ type bundleUsageServer struct {
 	outboundError string
 	mu            sync.Mutex
 	request       *nodev1.CollectAllUsageRequest
+	ackRequest    *nodev1.AckAllUsageRequest
+}
+
+func (s *bundleUsageServer) AckAllUsage(_ context.Context, req *nodev1.AckAllUsageRequest) (*nodev1.AckAllUsageResponse, error) {
+	s.mu.Lock()
+	s.ackRequest = req
+	s.mu.Unlock()
+	return &nodev1.AckAllUsageResponse{
+		UsersAcknowledged:    req.GetUserBatchId() == "user-batch",
+		OutboundAcknowledged: req.GetOutboundBatchId() == "outbound-batch",
+	}, nil
 }
 
 func (s *bundleUsageServer) CollectAllUsage(_ context.Context, req *nodev1.CollectAllUsageRequest) (*nodev1.CollectAllUsageResponse, error) {
@@ -206,5 +217,35 @@ func TestCachedNodeMetricsDoesNotCacheCancelledFetch(t *testing.T) {
 	}
 	if fetches != 2 {
 		t.Fatalf("fetches=%d want 2", fetches)
+	}
+}
+
+func TestAckBundledUsageCountsAcknowledgedBatches(t *testing.T) {
+	server := &bundleUsageServer{}
+	client := startUsageTestNode(t, server, nodeclient.CapabilityUsageBundle)
+	result := CollectUsageResult{}
+	ackBundledUsage(context.Background(), client, 1, "user-batch", "outbound-batch", &result)
+	if result.UserAcked != 1 || result.OutboundAcked != 1 || len(result.Errors) != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if server.ackRequest.GetUserBatchId() != "user-batch" || server.ackRequest.GetOutboundBatchId() != "outbound-batch" {
+		t.Fatalf("ack request=%v", server.ackRequest)
+	}
+}
+
+func TestAckBundledUsageSkipsRPCWhenNothingWasCollected(t *testing.T) {
+	server := &bundleUsageServer{}
+	client := startUsageTestNode(t, server, nodeclient.CapabilityUsageBundle)
+	result := CollectUsageResult{}
+	ackBundledUsage(context.Background(), client, 1, "", "", &result)
+	if result.UserAcked != 0 || result.OutboundAcked != 0 || len(result.Errors) != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if server.ackRequest != nil {
+		t.Fatalf("ack must not be sent without batches: %v", server.ackRequest)
 	}
 }

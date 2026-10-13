@@ -12,6 +12,7 @@ import (
 	userread "github.com/rebeccapanel/rebecca/internal/app/user"
 	nodev1 "github.com/rebeccapanel/rebecca/internal/proto/node/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -381,7 +382,7 @@ func runtimeUserBatchOutcomes(chunk []plannedRuntimeUserGroup, results []*nodev1
 
 type runtimeUserBatchRuntime interface {
 	Runtime() nodev1.NodeRuntimeServiceClient
-	CallOptions() []grpc.CallOption
+	RequestOptions(request proto.Message) []grpc.CallOption
 }
 
 func (c Controller) sendRuntimeUserBatches(ctx context.Context, client runtimeUserBatchRuntime, planned []plannedRuntimeUserGroup, result *ProcessOperationsResult) {
@@ -398,10 +399,11 @@ func (c Controller) sendRuntimeUserBatch(ctx context.Context, client runtimeUser
 	var results []*nodev1.UserBatchResult
 	var batchErr error
 	if len(operations) > 0 {
-		response, err := client.Runtime().ApplyUserBatch(ctx, &nodev1.UserBatchRequest{
+		batchReq := &nodev1.UserBatchRequest{
 			BatchId:    newOperationID("user_batch", 0),
 			Operations: operations,
-		}, client.CallOptions()...)
+		}
+		response, err := client.Runtime().ApplyUserBatch(ctx, batchReq, client.RequestOptions(batchReq)...)
 		batchErr = err
 		if err == nil {
 			results = response.GetResults()

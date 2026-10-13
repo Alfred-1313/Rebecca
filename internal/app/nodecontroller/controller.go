@@ -170,7 +170,7 @@ func (c Controller) Connect(ctx context.Context, req Request) (RuntimeResult, er
 	if err := c.prepareRuntimeRevision(ctx, client, node.ID, syncReq); err != nil {
 		return RuntimeResult{}, err
 	}
-	syncRes, err := client.Runtime().SyncConfig(ctx, syncReq, client.CallOptions()...)
+	syncRes, err := client.Runtime().SyncConfig(ctx, syncReq, client.RequestOptions(syncReq)...)
 	if err != nil {
 		_ = c.repo.SetError(ctx, req.NodeID, err.Error())
 		return RuntimeResult{}, friendlyNodeError("sync", req.NodeID, err)
@@ -230,7 +230,7 @@ func (c Controller) restartNow(ctx context.Context, req Request) (RuntimeResult,
 	if err := c.prepareRuntimeRevision(ctx, client, node.ID, runtimeReq); err != nil {
 		return RuntimeResult{}, err
 	}
-	res, err := client.Runtime().RestartRuntime(ctx, runtimeReq, client.CallOptions()...)
+	res, err := client.Runtime().RestartRuntime(ctx, runtimeReq, client.RequestOptions(runtimeReq)...)
 	if err != nil {
 		_ = c.repo.SetError(ctx, req.NodeID, err.Error())
 		return RuntimeResult{}, friendlyNodeError("restart", req.NodeID, err)
@@ -856,7 +856,7 @@ func (c Controller) applyOperation(ctx context.Context, operation OperationRow, 
 		if err := c.prepareRuntimeRevision(ctx, client, node.ID, runtimeReq); err != nil {
 			return err
 		}
-		res, err := client.Runtime().SyncConfig(ctx, runtimeReq, client.CallOptions()...)
+		res, err := client.Runtime().SyncConfig(ctx, runtimeReq, client.RequestOptions(runtimeReq)...)
 		if err != nil {
 			if !isRuntimeUserOperation(operation.OperationType) {
 				_ = c.repo.SetError(ctx, operation.NodeID.Int64, err.Error())

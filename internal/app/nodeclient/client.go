@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/protobuf/proto"
 )
 
 const MaxMessageSize = 64 << 20
@@ -20,6 +21,8 @@ const (
 	CapabilityGzipRequests = "grpc_gzip"
 	CapabilityUsageBundle  = "usage_bundle"
 )
+
+const compressRequestsAboveBytes = 1024
 
 type Client struct {
 	conn        *grpc.ClientConn
@@ -62,8 +65,8 @@ func (c *Client) NodeVersion() string {
 	return c.version
 }
 
-func (c *Client) CallOptions() []grpc.CallOption {
-	if !c.Supports(CapabilityGzipRequests) {
+func (c *Client) RequestOptions(request proto.Message) []grpc.CallOption {
+	if !c.Supports(CapabilityGzipRequests) || proto.Size(request) < compressRequestsAboveBytes {
 		return nil
 	}
 	return []grpc.CallOption{grpc.UseCompressor(gzip.Name)}

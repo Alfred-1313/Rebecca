@@ -290,13 +290,14 @@ type usageBatches struct {
 func fetchUsageBatches(ctx context.Context, client *nodeclient.Client, req usageBatchRequest) usageBatches {
 	if client.Supports(nodeclient.CapabilityUsageBundle) {
 		rpcCtx, rpcCancel := withUsageBundleRPCTimeout(ctx)
-		res, err := client.Usage().CollectAllUsage(rpcCtx, &nodev1.CollectAllUsageRequest{
+		bundleReq := &nodev1.CollectAllUsageRequest{
 			CollectorId:  req.collectorID,
 			Reset_:       req.reset,
 			IpScope:      ipScopeForNode(client, req.ipLimitedUserIDs),
 			SkipUsers:    !req.collectUsers,
 			SkipOutbound: !req.collectOutbound,
-		}, client.CallOptions()...)
+		}
+		res, err := client.Usage().CollectAllUsage(rpcCtx, bundleReq, client.RequestOptions(bundleReq)...)
 		rpcCancel()
 		if status.Code(err) != codes.Unimplemented {
 			return bundledUsageBatches(req, res, err)
@@ -328,11 +329,12 @@ func separateUsageBatches(ctx context.Context, client *nodeclient.Client, req us
 	var batches usageBatches
 	if req.collectUsers {
 		rpcCtx, rpcCancel := withUsageRPCTimeout(ctx)
-		batches.user, batches.userErr = client.Usage().CollectUserUsage(rpcCtx, &nodev1.CollectUsageRequest{
+		usageReq := &nodev1.CollectUsageRequest{
 			CollectorId: req.collectorID,
 			Reset_:      req.reset,
 			IpScope:     ipScopeForNode(client, req.ipLimitedUserIDs),
-		}, client.CallOptions()...)
+		}
+		batches.user, batches.userErr = client.Usage().CollectUserUsage(rpcCtx, usageReq, client.RequestOptions(usageReq)...)
 		rpcCancel()
 		if batches.userErr != nil {
 			return batches
