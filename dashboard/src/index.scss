@@ -841,7 +841,7 @@ body {
   }
 
   .chakra-modal__content-container {
-    align-items: stretch !important;
+    align-items: flex-end !important;
     padding: 0 !important;
     z-index: 16001 !important;
   }
@@ -849,10 +849,10 @@ body {
   .chakra-modal__content {
     width: 100vw !important;
     max-width: 100vw !important;
-    height: var(--rb-dialog-viewport-height) !important;
-    max-height: var(--rb-dialog-viewport-height) !important;
+    min-height: 0 !important;
+    max-height: 92dvh !important;
     margin: 0 !important;
-    border-radius: 0 !important;
+    border-radius: 16px 16px 0 0 !important;
     display: flex;
     flex-direction: column;
   }
@@ -861,6 +861,15 @@ body {
     align-items: center !important;
     justify-content: center !important;
     padding: 1rem !important;
+  }
+
+  .chakra-modal__content.rb-sidebar-drawer {
+    width: 80% !important;
+    max-width: 80% !important;
+    height: 100% !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
   }
 
   .chakra-modal__content.rb-confirm-dialog-content {
@@ -2212,4 +2221,13 @@ img.apple-emoji {
   left: 0;
   max-width: calc(100vw - 280px);
   box-sizing: border-box;
+}
+
+@keyframes rb-sheet-up {
+	from {
+		transform: translateY(100%);
+	}
+	to {
+		transform: translateY(0);
+	}
 }

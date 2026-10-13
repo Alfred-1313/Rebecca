@@ -2606,13 +2606,8 @@ export const UserDialog: FC<UserDialogProps> = () => {
 																		md: "minmax(0, 1fr) auto",
 																	}}
 																	templateAreas={{
-																		base: isOnHold
-																			? `"label" "field" "button"`
-																			: `"label" "field" "helper" "button"`,
-																		md: isOnHold
-																			? `"label ."
-																			   "field button"`
-																			: `"label ."
+																		base: `"label" "field" "helper" "button"`,
+																		md: `"label ."
 																			   "field button"
 																			   "helper ."`,
 																	}}
@@ -2739,6 +2734,27 @@ export const UserDialog: FC<UserDialogProps> = () => {
 																		<FormHelperText gridArea="helper" mt={0}>
 																			{expireHelperText}
 																		</FormHelperText>
+																	) : null}
+																	{isOnHold ? (
+																		<HStack gridArea="helper" spacing={2} flexWrap="wrap">
+																			{[7, 30, 60, 90, 180, 365].map((days) => (
+																				<Button
+																					key={days}
+																					size="xs"
+																					variant="outline"
+																					isDisabled={disabled}
+																					onClick={() =>
+																						form.setValue(
+																							"on_hold_expire_duration",
+																							days,
+																							{ shouldDirty: true, shouldValidate: true },
+																						)
+																					}
+																				>
+																					{days}D
+																				</Button>
+																			))}
+																		</HStack>
 																	) : null}
 																	<Button
 																		gridArea="button"

@@ -82,6 +82,7 @@ import { clearClientSession } from "utils/session";
 import { getSponsors, type SponsorAsset } from "service/sponsors";
 import { ReactComponent as ImperialIranFlag } from "../assets/imperial-iran-flag.svg";
 import { AppSidebar } from "./AppSidebar";
+import { useSheetSwipeToClose } from "hooks/useSheetSwipeToClose";
 import { GitHubStars } from "./GitHubStars";
 import { HeaderCalendar } from "./HeaderCalendar";
 import { NotificationBell } from "./NotificationBell";
@@ -141,6 +142,7 @@ export function AppLayout() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const isMobile = useBreakpointValue({ base: true, md: false });
 	const sidebarDrawer = useDisclosure();
+	useSheetSwipeToClose();
 	const languageMenu = useDisclosure();
 	const userMenu = useDisclosure();
 	const accountMenu = useDisclosure();
@@ -1324,7 +1326,7 @@ export function AppLayout() {
 						size="xs"
 					>
 						<DrawerOverlay />
-						<DrawerContent bg="panel.sidebar">
+						<DrawerContent className="rb-sidebar-drawer" bg="panel.sidebar">
 							<DrawerBody p={0}>
 								<AppSidebar
 									collapsed={false}
