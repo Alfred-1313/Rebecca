@@ -162,7 +162,7 @@ func (c Controller) Connect(ctx context.Context, req Request) (RuntimeResult, er
 			return RuntimeResult{}, friendlyNodeError("sync", req.NodeID, err)
 		}
 	}
-	syncReq, err := c.runtimeConfigRequest(ctx, node, queuedOperationID("sync_config", supersededIDs, req.NodeID), configJSON)
+	syncReq, err := c.runtimeConfigRequest(ctx, node, newOperationID("sync_config", req.NodeID), configJSON)
 	if err != nil {
 		_ = c.repo.SetError(ctx, req.NodeID, err.Error())
 		return RuntimeResult{}, friendlyNodeError("sync", req.NodeID, err)
@@ -839,13 +839,13 @@ func (c Controller) applyOperation(ctx context.Context, operation OperationRow, 
 		var runtimeReq *nodev1.RuntimeConfigRequest
 		if prepared != nil && prepared.nodeID == node.ID && prepared.configJSON == configJSON {
 			runtimeReq = &nodev1.RuntimeConfigRequest{
-				OperationId:     fmt.Sprintf("%s-%d", operation.OperationType, operation.ID),
+				OperationId:     operation.remoteOperationID(operation.OperationType),
 				ConfigJson:      configJSON,
 				OvRuntimeJson:   prepared.ovRuntimeJSON,
 				DesiredRevision: uint64(operation.ID),
 			}
 		} else {
-			runtimeReq, err = c.runtimeConfigRequest(ctx, node, fmt.Sprintf("%s-%d", operation.OperationType, operation.ID), configJSON)
+			runtimeReq, err = c.runtimeConfigRequest(ctx, node, operation.remoteOperationID(operation.OperationType), configJSON)
 			if err != nil {
 				if !isRuntimeUserOperation(operation.OperationType) {
 					_ = c.repo.SetError(ctx, operation.NodeID.Int64, err.Error())
@@ -871,7 +871,7 @@ func (c Controller) applyOperation(ctx context.Context, operation OperationRow, 
 			return err
 		}
 		req.NodeID = operation.NodeID.Int64
-		req.OperationID = fmt.Sprintf("%s-%d", operation.OperationType, operation.ID)
+		req.OperationID = operation.remoteOperationID(operation.OperationType)
 		switch operation.OperationType {
 		case "update_runtime":
 			_, err := c.updateRuntimeNow(ctx, req)
@@ -911,10 +911,10 @@ func (c Controller) applyOperation(ctx context.Context, operation OperationRow, 
 				return err
 			}
 		}
-		_, err := c.restartNow(ctx, Request{NodeID: operation.NodeID.Int64, ConfigJSON: configJSON, OperationID: fmt.Sprintf("restart_node-%d", operation.ID)})
+		_, err := c.restartNow(ctx, Request{NodeID: operation.NodeID.Int64, ConfigJSON: configJSON, OperationID: operation.remoteOperationID("restart_node")})
 		return err
 	case "reboot_node":
-		_, err := c.rebootHostNow(ctx, Request{NodeID: operation.NodeID.Int64, OperationID: fmt.Sprintf("reboot_node-%d", operation.ID)})
+		_, err := c.rebootHostNow(ctx, Request{NodeID: operation.NodeID.Int64, OperationID: operation.remoteOperationID("reboot_node")})
 		return err
 	default:
 		return fmt.Errorf("unsupported node operation: %s", operation.OperationType)
@@ -1209,17 +1209,11 @@ func newOperationID(action string, nodeID int64) string {
 	return fmt.Sprintf("%s-%d-%d", action, nodeID, time.Now().UTC().UnixNano())
 }
 
-func queuedOperationID(action string, ids []int64, nodeID int64) string {
-	var latest int64
-	for _, id := range ids {
-		if id > latest {
-			latest = id
-		}
+func (operation OperationRow) remoteOperationID(prefix string) string {
+	if key := strings.TrimSpace(operation.IdempotencyKey); key != "" {
+		return prefix + "-" + key
 	}
-	if latest > 0 {
-		return fmt.Sprintf("%s-%d", action, latest)
-	}
-	return newOperationID(action, nodeID)
+	return fmt.Sprintf("%s-%d", prefix, operation.ID)
 }
 
 func WithDefaultTimeout(parent context.Context) (context.Context, context.CancelFunc) {

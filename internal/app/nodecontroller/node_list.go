@@ -129,7 +129,7 @@ func (c Controller) Sync(ctx context.Context, req Request) (RuntimeResult, error
 		_ = c.repo.SetError(ctx, node.ID, err.Error())
 		return RuntimeResult{}, friendlyNodeError("sync", node.ID, err)
 	}
-	runtimeReq, err := c.runtimeConfigRequest(ctx, node, queuedOperationID("sync_config", supersededIDs, node.ID), configJSON)
+	runtimeReq, err := c.runtimeConfigRequest(ctx, node, newOperationID("sync_config", node.ID), configJSON)
 	if err != nil {
 		_ = c.repo.SetError(ctx, node.ID, err.Error())
 		return RuntimeResult{}, friendlyNodeError("sync", node.ID, err)
