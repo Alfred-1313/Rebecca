@@ -1027,6 +1027,9 @@ func (c Controller) dial(ctx context.Context, nodeID int64) (*nodeclient.Client,
 			cached := value.(cachedNodeClient)
 			state := cached.client.State()
 			if cached.key == cacheKey && state != connectivity.TransientFailure && state != connectivity.Shutdown {
+				if cached.client.HandshakeDue(nodeHandshakeRefreshInterval) {
+					refreshNodeHandshake(ctx, cached.client)
+				}
 				return cached.client, node, nil
 			}
 			c.nodeClients.Delete(nodeID)
@@ -1064,6 +1067,17 @@ func (c Controller) dial(ctx context.Context, nodeID int64) (*nodeclient.Client,
 		errors = append(errors, address+": "+err.Error())
 	}
 	return nil, node, fmt.Errorf("node gRPC dial failed: %s", strings.Join(errors, "; "))
+}
+
+func refreshNodeHandshake(ctx context.Context, client *nodeclient.Client) {
+	helloCtx, cancel := withNodeDialAttemptTimeout(ctx)
+	defer cancel()
+	hello, err := client.Control().Hello(helloCtx, &nodev1.HelloRequest{MasterId: "rebecca-master"})
+	if err != nil {
+		client.DeferHandshake()
+		return
+	}
+	client.SetHandshake(hello.GetNodeVersion(), hello.GetRuntime().GetCapabilities())
 }
 
 type cachedNodeClient struct {
@@ -1211,6 +1225,8 @@ func WithDefaultTimeout(parent context.Context) (context.Context, context.Cancel
 }
 
 const nodeDialAttemptTimeout = 6 * time.Second
+
+const nodeHandshakeRefreshInterval = time.Minute
 
 func withNodeDialAttemptTimeout(parent context.Context) (context.Context, context.CancelFunc) {
 	if deadline, ok := parent.Deadline(); ok {

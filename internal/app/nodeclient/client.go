@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"sync"
+	"time"
 
 	nodev1 "github.com/rebeccapanel/rebecca/internal/proto/node/v1"
 	"google.golang.org/grpc"
@@ -15,23 +16,37 @@ import (
 const MaxMessageSize = 64 << 20
 
 type Client struct {
-	conn    *grpc.ClientConn
-	control nodev1.NodeControlServiceClient
-	runtime nodev1.NodeRuntimeServiceClient
-	usage   nodev1.NodeUsageServiceClient
-	logs    nodev1.NodeLogsServiceClient
-	mu      sync.RWMutex
-	caps    map[string]struct{}
-	version string
+	conn        *grpc.ClientConn
+	control     nodev1.NodeControlServiceClient
+	runtime     nodev1.NodeRuntimeServiceClient
+	usage       nodev1.NodeUsageServiceClient
+	logs        nodev1.NodeLogsServiceClient
+	mu          sync.RWMutex
+	caps        map[string]struct{}
+	version     string
+	handshakeAt time.Time
 }
 
 func (c *Client) SetHandshake(version string, capabilities []string) {
 	c.mu.Lock()
 	c.version = version
+	c.handshakeAt = time.Now()
 	c.caps = make(map[string]struct{}, len(capabilities))
 	for _, capability := range capabilities {
 		c.caps[capability] = struct{}{}
 	}
+	c.mu.Unlock()
+}
+
+func (c *Client) HandshakeDue(interval time.Duration) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return time.Since(c.handshakeAt) >= interval
+}
+
+func (c *Client) DeferHandshake() {
+	c.mu.Lock()
+	c.handshakeAt = time.Now()
 	c.mu.Unlock()
 }
 
