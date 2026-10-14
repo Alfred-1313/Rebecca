@@ -529,6 +529,8 @@
 	"bulkActions.create.notePlaceholder": "Batch {username}",
 	"bulkActions.create.noteHelp": "Use {username} to insert each generated username.",
 	"bulkActions.create.submit": "Create {{count}} users",
+	"bulkActions.create.exists": "This username already exists",
+	"bulkActions.create.existing": "{{count}} of these usernames already exist; they will fail",
 	"bulkActions.create.completed": "Bulk creation completed",
 	"bulkActions.delete.warning": "Deleted users cannot be restored. Preview the exact target set before confirming.",
 	"bulkActions.delete.usernames": "Usernames to delete",
