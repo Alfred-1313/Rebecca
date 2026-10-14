@@ -502,7 +502,6 @@
 	"bulkActions.invalidUsernames": "{{count}} usernames are invalid.",
 	"bulkActions.results.title": "Operation results",
 	"bulkActions.results.summary": "{{success}} completed, {{failed}} failed",
-	"bulkActions.results.links": "Links and configs",
 	"bulkActions.results.copyAllLinks": "Copy all subscription links",
 	"bulkActions.results.copyAllConfigs": "Copy all configs",
 	"bulkActions.create.usernames": "Usernames",

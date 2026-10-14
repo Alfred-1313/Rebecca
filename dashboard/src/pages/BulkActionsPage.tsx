@@ -13,17 +13,19 @@ import {
 	Grid,
 	GridItem,
 	HStack,
+	IconButton,
 	Input,
 	SimpleGrid,
 	Stack,
 	Text,
 	Textarea,
+	Tooltip,
 	useToast,
 	VStack,
 } from "@chakra-ui/react";
 import {
 	CheckCircleIcon,
-	ClipboardDocumentIcon,
+	ClipboardIcon,
 	ExclamationCircleIcon,
 	LinkIcon,
 	PlusIcon,
@@ -157,6 +159,33 @@ const Surface = ({ children }: { children: React.ReactNode }) => (
 	</Box>
 );
 
+const ResultAction = ({
+	label,
+	icon,
+	isDisabled,
+	onClick,
+}: {
+	label: string;
+	icon: React.ReactElement;
+	isDisabled?: boolean;
+	onClick: () => void;
+}) => (
+	<Tooltip label={label}>
+		<span>
+			<IconButton
+				aria-label={label}
+				icon={icon}
+				variant="ghost"
+				size="sm"
+				minW="30px"
+				h="30px"
+				isDisabled={isDisabled}
+				onClick={onClick}
+			/>
+		</span>
+	</Tooltip>
+);
+
 const Results = ({ results }: { results: BatchResult[] }) => {
 	const { t } = useTranslation();
 	const toast = useToast();
@@ -164,10 +193,6 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 	const setSubLink = useDashboard((state) => state.setSubLink);
 	if (!results.length) return null;
 	const succeeded = results.filter((result) => result.ok).length;
-	// created users with their links, in the order they were made
-	const created = results.filter(
-		(result) => result.ok && (result.subscription || result.links?.length),
-	);
 	const copy = async (text: string) => {
 		if (!text) return;
 		try {
@@ -177,16 +202,15 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 			toast({ title: t("usersTable.copyFailed"), status: "error" });
 		}
 	};
-	const allLinks = created
+	// in the order the users were created
+	const allLinks = results
 		.map((result) => result.subscription)
 		.filter(Boolean)
 		.join("\n");
-	const allConfigs = created
-		.flatMap((result) => result.links ?? [])
-		.join("\n");
+	const allConfigs = results.flatMap((result) => result.links ?? []).join("\n");
 	return (
 		<Surface>
-			<HStack justify="space-between" align="flex-start" mb={3}>
+			<HStack justify="space-between" align="flex-start" mb={3} gap={3} flexWrap="wrap">
 				<Box>
 					<Text fontWeight="semibold">{t("bulkActions.results.title")}</Text>
 					<Text color="panel.textSecondary" fontSize="sm">
@@ -196,129 +220,93 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 						})}
 					</Text>
 				</Box>
-				<Badge colorScheme={succeeded === results.length ? "green" : "orange"}>
-					{succeeded}/{results.length}
-				</Badge>
+				<HStack spacing={2} flexWrap="wrap">
+					{allLinks && (
+						<Button
+							size="xs"
+							variant="outline"
+							leftIcon={<LinkIcon width={14} />}
+							onClick={() => void copy(allLinks)}
+						>
+							{t("bulkActions.results.copyAllLinks")}
+						</Button>
+					)}
+					{allConfigs && (
+						<Button
+							size="xs"
+							variant="outline"
+							leftIcon={<ClipboardIcon width={14} />}
+							onClick={() => void copy(allConfigs)}
+						>
+							{t("bulkActions.results.copyAllConfigs")}
+						</Button>
+					)}
+					<Badge colorScheme={succeeded === results.length ? "green" : "orange"}>
+						{succeeded}/{results.length}
+					</Badge>
+				</HStack>
 			</HStack>
 			<Stack spacing={0} borderTopWidth="1px" borderColor="panel.border">
-				{results.map((result) => (
-					<HStack
-						key={result.username}
-						justify="space-between"
-						align="flex-start"
-						gap={4}
-						py={2.5}
-						borderBottomWidth="1px"
-						borderColor="panel.border"
-					>
-						<HStack minW={0}>
-							<Box color={result.ok ? "green.400" : "red.400"} flexShrink={0}>
-								{result.ok ? (
-									<CheckCircleIcon width={18} />
-								) : (
-									<ExclamationCircleIcon width={18} />
-								)}
-							</Box>
-							<Code bg="transparent" color="inherit" noOfLines={1}>
-								{result.username}
-							</Code>
-						</HStack>
-						<Text
-							fontSize="sm"
-							color={result.ok ? "panel.textSecondary" : "red.400"}
-							textAlign="end"
+				{results.map((result) => {
+					const hasLinks = Boolean(result.subscription || result.links?.length);
+					return (
+						<HStack
+							key={result.username}
+							justify="space-between"
+							align="center"
+							gap={4}
+							py={hasLinks ? 1.5 : 2.5}
+							borderBottomWidth="1px"
+							borderColor="panel.border"
 						>
-							{result.detail}
-						</Text>
-					</HStack>
-				))}
-			</Stack>
-			{created.length > 0 && (
-				<Box mt={5}>
-					<HStack justify="space-between" align="center" mb={3} flexWrap="wrap">
-						<Text fontWeight="semibold">{t("bulkActions.results.links")}</Text>
-						<HStack spacing={2} flexWrap="wrap">
-							<Button
-								size="sm"
-								leftIcon={<LinkIcon width={16} />}
-								isDisabled={!allLinks}
-								onClick={() => void copy(allLinks)}
-							>
-								{t("bulkActions.results.copyAllLinks")}
-							</Button>
-							<Button
-								size="sm"
-								leftIcon={<ClipboardDocumentIcon width={16} />}
-								isDisabled={!allConfigs}
-								onClick={() => void copy(allConfigs)}
-							>
-								{t("bulkActions.results.copyAllConfigs")}
-							</Button>
-						</HStack>
-					</HStack>
-					<Stack spacing={0} borderTopWidth="1px" borderColor="panel.border">
-						{created.map((result) => (
-							<Box
-								key={result.username}
-								py={3}
-								borderBottomWidth="1px"
-								borderColor="panel.border"
-							>
-								<HStack justify="space-between" align="center" mb={2}>
-									<Code bg="transparent" color="inherit" fontWeight="semibold">
-										{result.username}
-									</Code>
-									<HStack spacing={1}>
-										<Button
-											size="xs"
-											variant="ghost"
-											leftIcon={<QrCodeIcon width={14} />}
-											onClick={() => {
-												setQRCode(result.links ?? [], result.username);
-												setSubLink(result.subscription || null);
-											}}
-										>
-											{t("usersTable.qrCode")}
-										</Button>
-										<Button
-											size="xs"
-											variant="ghost"
-											leftIcon={<LinkIcon width={14} />}
-											isDisabled={!result.subscription}
-											onClick={() => void copy(result.subscription ?? "")}
-										>
-											{t("usersTable.copyLink")}
-										</Button>
-										<Button
-											size="xs"
-											variant="ghost"
-											leftIcon={<ClipboardDocumentIcon width={14} />}
-											isDisabled={!result.links?.length}
-											onClick={() => void copy((result.links ?? []).join("\n"))}
-										>
-											{t("usersTable.copyConfigs")}
-										</Button>
-									</HStack>
+							<HStack minW={0}>
+								<Box color={result.ok ? "green.400" : "red.400"} flexShrink={0}>
+									{result.ok ? (
+										<CheckCircleIcon width={18} />
+									) : (
+										<ExclamationCircleIcon width={18} />
+									)}
+								</Box>
+								<Code bg="transparent" color="inherit" noOfLines={1}>
+									{result.username}
+								</Code>
+							</HStack>
+							{result.ok && hasLinks ? (
+								<HStack spacing={1}>
+									<ResultAction
+										label={t("usersTable.copyLink")}
+										icon={<LinkIcon width={18} />}
+										isDisabled={!result.subscription}
+										onClick={() => void copy(result.subscription ?? "")}
+									/>
+									<ResultAction
+										label={t("usersTable.copyConfigs")}
+										icon={<ClipboardIcon width={18} />}
+										isDisabled={!result.links?.length}
+										onClick={() => void copy((result.links ?? []).join("\n"))}
+									/>
+									<ResultAction
+										label={t("usersTable.qrCode")}
+										icon={<QrCodeIcon width={18} />}
+										onClick={() => {
+											setQRCode(result.links ?? [], result.username);
+											setSubLink(result.subscription || null);
+										}}
+									/>
 								</HStack>
-								{[result.subscription, ...(result.links ?? [])]
-									.filter(Boolean)
-									.map((link) => (
-										<Text
-											key={link}
-											dir="ltr"
-											fontFamily="mono"
-											fontSize="xs"
-											color="panel.textSecondary"
-											wordBreak="break-all"
-										>
-											{link}
-										</Text>
-									))}
-							</Box>
-						))}
-					</Stack>
-				</Box>
-			)}
+							) : (
+								<Text
+									fontSize="sm"
+									color={result.ok ? "panel.textSecondary" : "red.400"}
+									textAlign="end"
+								>
+									{result.detail}
+								</Text>
+							)}
+						</HStack>
+					);
+				})}
+			</Stack>
 		</Surface>
 	);
 };

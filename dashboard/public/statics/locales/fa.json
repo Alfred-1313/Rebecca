@@ -494,7 +494,6 @@
 	"bulkActions.invalidUsernames": "{{count}} نام کاربری نامعتبر است.",
 	"bulkActions.results.title": "نتیجه عملیات",
 	"bulkActions.results.summary": "{{success}} موفق، {{failed}} ناموفق",
-	"bulkActions.results.links": "لینک‌ها و کانفیگ‌ها",
 	"bulkActions.results.copyAllLinks": "کپی همه لینک‌های اشتراک",
 	"bulkActions.results.copyAllConfigs": "کپی همه کانفیگ‌ها",
 	"bulkActions.create.usernames": "نام‌های کاربری",
