@@ -521,6 +521,8 @@
 	"bulkActions.create.notePlaceholder": "گروه {username}",
 	"bulkActions.create.noteHelp": "برای درج نام هر کاربر از {username} استفاده کنید.",
 	"bulkActions.create.submit": "ساخت {{count}} کاربر",
+	"bulkActions.create.exists": "این نام کاربری از قبل وجود دارد",
+	"bulkActions.create.existing": "{{count}} تا از این نام‌های کاربری از قبل وجود دارد و ساخته نمی‌شود",
 	"bulkActions.create.completed": "ساخت گروهی تمام شد",
 	"bulkActions.delete.warning": "کاربران حذف‌شده قابل بازیابی نیستند. پیش از تأیید، فهرست دقیق کاربران هدف را بررسی کنید.",
 	"bulkActions.delete.usernames": "نام‌های کاربری برای حذف",

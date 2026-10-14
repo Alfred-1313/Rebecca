@@ -367,6 +367,43 @@ const BulkCreatePanel = ({
 	const invalidNames = usernames.filter(
 		(username) => !USERNAME_PATTERN.test(username),
 	);
+
+	// usernames of the preview that are already taken, so they can be marked before the run
+	const [existingNames, setExistingNames] = useState<Set<string>>(new Set());
+	useEffect(() => {
+		const names = usernames.filter((username) => USERNAME_PATTERN.test(username));
+		if (!names.length) {
+			setExistingNames(new Set());
+			return;
+		}
+		let cancelled = false;
+		const timer = setTimeout(async () => {
+			const found = new Set<string>();
+			for (let index = 0; index < names.length; index += 100) {
+				const batch = names.slice(index, index + 100);
+				try {
+					const response = await fetch<{ users?: Array<{ username: string }> }>(
+						"/users",
+						{ query: { username: batch, limit: batch.length } },
+					);
+					for (const user of response?.users ?? []) {
+						found.add(user.username.toLowerCase());
+					}
+				} catch {
+					// the preview just stays unmarked
+				}
+			}
+			if (!cancelled) setExistingNames(found);
+		}, 400);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	}, [usernames]);
+	const existingCount = usernames.filter((username) =>
+		existingNames.has(username.toLowerCase()),
+	).length;
+
 	const canSubmit =
 		usernames.length > 0 &&
 		invalidNames.length === 0 &&
@@ -681,7 +718,17 @@ const BulkCreatePanel = ({
 							{usernames.slice(0, 12).map((username) => (
 								<Code
 									key={username}
-									colorScheme={USERNAME_PATTERN.test(username) ? "gray" : "red"}
+									colorScheme={
+										USERNAME_PATTERN.test(username) &&
+										!existingNames.has(username.toLowerCase())
+											? "gray"
+											: "red"
+									}
+									title={
+										existingNames.has(username.toLowerCase())
+											? t("bulkActions.create.exists")
+											: undefined
+									}
 								>
 									{username}
 								</Code>
@@ -697,6 +744,11 @@ const BulkCreatePanel = ({
 								{t("bulkActions.invalidUsernames", {
 									count: invalidNames.length,
 								})}
+							</Text>
+						)}
+						{existingCount > 0 && (
+							<Text color="red.400" fontSize="sm" mt={2}>
+								{t("bulkActions.create.existing", { count: existingCount })}
 							</Text>
 						)}
 					</Box>
