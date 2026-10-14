@@ -78,6 +78,7 @@ import {
 import { useCoreSettings } from "contexts/CoreSettingsContext";
 import { useDashboard } from "contexts/DashboardContext";
 import useGetUser from "hooks/useGetUser";
+import { isMullvadOutbound } from "utils/mullvad";
 import { DEFAULT_SEARCH_MATCH_OPTIONS, matchesSearch } from "utils/searchMatch";
 import {
 	type FC,
@@ -822,6 +823,12 @@ export const CoreSettingsPage: FC = () => {
 		onOpen: onMullvadOpen,
 		onClose: onMullvadClose,
 	} = useDisclosure();
+	// the outbound the Mullvad window opens on; undefined for a new one
+	const [mullvadEditTag, setMullvadEditTag] = useState<string>();
+	const openMullvad = (tag?: string) => {
+		setMullvadEditTag(tag);
+		onMullvadOpen();
+	};
 	const {
 		isOpen: isOutboundSubsOpen,
 		onOpen: onOutboundSubsOpen,
@@ -4012,6 +4019,21 @@ export const CoreSettingsPage: FC = () => {
 			icon: <EditIconStyled />,
 			onClick: () => editOutbound(row.originalIndex),
 		},
+		...(isMullvadOutbound(form.getValues("config.outbounds")?.[row.originalIndex])
+			? [
+					{
+						id: "edit-mullvad",
+						label: t("pages.xray.mullvad.edit"),
+						icon: <MullvadIconStyled />,
+						onClick: () =>
+							openMullvad(
+								String(
+									form.getValues("config.outbounds")?.[row.originalIndex]?.tag ?? "",
+								),
+							),
+					},
+				]
+			: []),
 		{
 			id: "move-up",
 			label: t("pages.xray.outbound.moveUp"),
@@ -5166,7 +5188,7 @@ export const CoreSettingsPage: FC = () => {
 													</MenuItem>
 													<MenuItem
 														icon={<MullvadIconStyled />}
-														onClick={onMullvadOpen}
+														onClick={() => openMullvad()}
 													>
 														Mullvad
 													</MenuItem>
@@ -5992,6 +6014,9 @@ export const CoreSettingsPage: FC = () => {
 					<MullvadModal
 						isOpen={isMullvadOpen}
 						onClose={onMullvadClose}
+						initialTag={mullvadEditTag}
+						targetID={selectedTarget}
+						canPing={!isMasterTarget}
 						initialOutbounds={getOutbounds()}
 						onSave={handleMullvadSave}
 						onDelete={handleNordDelete}

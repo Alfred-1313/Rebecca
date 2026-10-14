@@ -3,6 +3,7 @@ import {
 	AlertDescription,
 	AlertIcon,
 	Button,
+	HStack,
 	FormControl,
 	FormErrorMessage,
 	FormHelperText,
@@ -16,11 +17,16 @@ import {
 	useToast,
 	VStack,
 } from "@chakra-ui/react";
-import { ArrowDownTrayIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import {
+	ArrowDownTrayIcon,
+	ArrowPathIcon,
+	SignalIcon,
+} from "@heroicons/react/24/outline";
 import { FileDropzone } from "components/common/FileDropzone";
 import { PanelSelect as Select } from "components/common/PanelSelect";
 import { type FC, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { fetch as apiFetch } from "service/http";
 import { countryFlag, countryName } from "utils/countries";
 import {
 	buildMullvadOutbound,
@@ -48,6 +54,21 @@ type Props = {
 	initialOutbounds: OutboundJson[];
 	onSave: (outbound: OutboundJson, replaceIndex: number | null) => void;
 	onDelete: (index: number) => void;
+	// opens on this Mullvad outbound for editing; a new one when left out
+	initialTag?: string;
+	// pings run on the node of this target; the master template cannot ping
+	targetID?: string;
+	canPing?: boolean;
+};
+
+type PingResult = number | "failed" | "pending";
+const PING_BATCH = 50;
+
+const pingText = (ping?: PingResult) => {
+	if (ping === undefined) return "";
+	if (ping === "pending") return " · …";
+	if (ping === "failed") return " · ✕";
+	return ` · ${ping} ms`;
 };
 
 export const MullvadModal: FC<Props> = ({
@@ -56,6 +77,9 @@ export const MullvadModal: FC<Props> = ({
 	initialOutbounds,
 	onSave,
 	onDelete,
+	initialTag,
+	targetID,
+	canPing = false,
 }) => {
 	const { t, i18n } = useTranslation();
 	const toast = useToast();
@@ -80,13 +104,79 @@ export const MullvadModal: FC<Props> = ({
 		}).sort((a, b) => a.title.localeCompare(b.title, i18n.language));
 	}, [servers, i18n.language]);
 
-	const serverOptions = useMemo(
-		() =>
-			servers
-				.filter((server) => server.country === country)
-				.map((server) => server.name),
-		[servers, country],
-	);
+	const [pings, setPings] = useState<Record<string, PingResult>>({});
+	// fastest first once pinged; servers without a ping keep their order at the end
+	const serverOptions = useMemo(() => {
+		const rank = (name: string) => {
+			const ping = pings[name];
+			return typeof ping === "number" ? ping : Number.POSITIVE_INFINITY;
+		};
+		return servers
+			.filter((server) => server.country === country)
+			.sort((a, b) => rank(a.name) - rank(b.name))
+			.map((server) => ({
+				value: server.name,
+				label: `${server.name}${pingText(pings[server.name])}`,
+				searchLabel: server.name,
+			}));
+	}, [servers, country, pings]);
+
+	// ICMP from the node to each server; no WireGuard session is opened
+	const pingServers = async (names: string[]) => {
+		if (!canPing || names.length === 0) return;
+		setPings((prev) => ({
+			...prev,
+			...Object.fromEntries(names.map((name) => [name, "pending" as const])),
+		}));
+		for (let start = 0; start < names.length; start += PING_BATCH) {
+			const batch = names.slice(start, start + PING_BATCH);
+			const probes = batch.map((name) => ({
+				tag: `mullvad-ping-${name}`,
+				protocol: "wireguard",
+				settings: {
+					peers: [
+						{
+							endpoint:
+								servers.find((server) => server.name === name)?.form
+									.endpoint ?? "",
+						},
+					],
+				},
+			}));
+			let results: Array<{ success?: boolean; delay?: number }> = [];
+			try {
+				const response = await apiFetch<{
+					obj?: Array<{ success?: boolean; delay?: number }>;
+				}>("/panel/xray/testOutbounds", {
+					method: "POST",
+					body: {
+						outbounds: JSON.stringify(probes),
+						target_id: targetID,
+						test_type: "icmp",
+					},
+				});
+				results = Array.isArray(response?.obj) ? response.obj : [];
+			} catch {
+				results = [];
+			}
+			setPings((prev) => ({
+				...prev,
+				...Object.fromEntries(
+					batch.map((name, index) => {
+						const result = results[index];
+						return [
+							name,
+							result?.success && typeof result.delay === "number"
+								? Math.round(result.delay)
+								: ("failed" as const),
+						];
+					}),
+				),
+			}));
+		}
+	};
+	const countryServerNames = serverOptions.map((option) => option.value);
+	const pinging = Object.values(pings).includes("pending");
 
 	const tags = initialOutbounds.map((outbound) => String(outbound?.tag ?? ""));
 	const mullvadTags = initialOutbounds
@@ -95,7 +185,9 @@ export const MullvadModal: FC<Props> = ({
 		.filter(Boolean);
 
 	// the Mullvad outbound being edited; "" while a new one is being made
-	const [editingTag, setEditingTag] = useState(() => mullvadTags[0] ?? "");
+	const [editingTag, setEditingTag] = useState(() =>
+		initialTag && mullvadTags.includes(initialTag) ? initialTag : "",
+	);
 	const editingIndex = editingTag ? tags.indexOf(editingTag) : -1;
 	const editingOutbound =
 		editingIndex >= 0 ? initialOutbounds[editingIndex] : null;
@@ -205,7 +297,15 @@ export const MullvadModal: FC<Props> = ({
 		<Modal isOpen={isOpen} onClose={onClose} size="3xl" isCentered>
 			<ModalOverlay />
 			<XrayModalContent>
-				<XrayModalHeader>Mullvad WireGuard</XrayModalHeader>
+				<XrayModalHeader
+					subtitle={
+						editingIndex >= 0
+							? t("pages.xray.mullvad.editingSubtitle", { tag: editingTag })
+							: t("pages.xray.mullvad.newOutbound")
+					}
+				>
+					Mullvad WireGuard
+				</XrayModalHeader>
 				<ModalCloseButton />
 				<XrayModalBody>
 					<VStack spacing={4} align="stretch">
@@ -293,6 +393,30 @@ export const MullvadModal: FC<Props> = ({
 										isDisabled={!country}
 										onChange={(event) => selectServer(event.target.value)}
 									/>
+									<HStack spacing={2} mt={2}>
+										<Button
+											size="xs"
+											leftIcon={<SignalIcon width={14} />}
+											isDisabled={!canPing || !serverName || pinging}
+											onClick={() => void pingServers([serverName])}
+										>
+											{t("pages.xray.mullvad.ping")}
+										</Button>
+										<Button
+											size="xs"
+											leftIcon={<SignalIcon width={14} />}
+											isDisabled={!canPing || !country || pinging}
+											isLoading={pinging}
+											onClick={() => void pingServers(countryServerNames)}
+										>
+											{t("pages.xray.mullvad.pingAll")}
+										</Button>
+									</HStack>
+									{!canPing && (
+										<FormHelperText>
+											{t("pages.xray.mullvad.pingNeedsNode")}
+										</FormHelperText>
+									)}
 								</FormControl>
 							</SimpleGrid>
 						)}

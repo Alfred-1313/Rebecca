@@ -108,10 +108,10 @@ describe("mullvad servers zip", () => {
 });
 
 describe("mullvad outbound names", () => {
-	it("suggests the first free Mullvad-N name", () => {
-		expect(nextMullvadTag([])).toBe("Mullvad-1");
+	it("suggests Mullvad, then the first free Mullvad-N name", () => {
+		expect(nextMullvadTag([])).toBe("Mullvad");
 		expect(nextMullvadTag(["DIRECT", "mullvad", "warp"])).toBe("Mullvad-1");
-		expect(nextMullvadTag(["Mullvad-1", "MULLVAD-2", "Mullvad-4"])).toBe("Mullvad-3");
+		expect(nextMullvadTag(["Mullvad", "Mullvad-1", "MULLVAD-2", "Mullvad-4"])).toBe("Mullvad-3");
 	});
 
 	it("recognises Mullvad outbounds by name or by Mullvad's address range", () => {
