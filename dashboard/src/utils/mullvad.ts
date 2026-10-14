@@ -11,9 +11,10 @@ export const isMullvadOutbound = (outbound?: OutboundJson | null) =>
 				MULLVAD_ADDRESS.test(String(item)),
 			)));
 
-// "Mullvad-1", "Mullvad-2", ...: the first name no outbound uses yet.
+// "Mullvad", then "Mullvad-1", "Mullvad-2", ...: the first name no outbound uses yet.
 export const nextMullvadTag = (tags: string[]) => {
 	const used = new Set(tags.map((tag) => tag.toLowerCase()));
+	if (!used.has("mullvad")) return "Mullvad";
 	let number = 1;
 	while (used.has(`mullvad-${number}`)) number++;
 	return `Mullvad-${number}`;
