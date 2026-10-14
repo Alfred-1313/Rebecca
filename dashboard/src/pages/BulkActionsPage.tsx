@@ -23,8 +23,11 @@ import {
 } from "@chakra-ui/react";
 import {
 	CheckCircleIcon,
+	ClipboardDocumentIcon,
 	ExclamationCircleIcon,
+	LinkIcon,
 	PlusIcon,
+	QrCodeIcon,
 	TrashIcon,
 } from "@heroicons/react/24/outline";
 import AdvancedUserActions from "components/AdvancedUserActions";
@@ -34,7 +37,7 @@ import { useAdminsStore } from "contexts/AdminsContext";
 import { useDashboard } from "contexts/DashboardContext";
 import { useServicesStore } from "contexts/ServicesContext";
 import useGetUser from "hooks/useGetUser";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { fetch } from "service/http";
@@ -50,6 +53,11 @@ import type {
 	UserCreateWithService,
 } from "types/User";
 import { isUserManagementLocked } from "utils/adminTraffic";
+import { copyTextToClipboard } from "utils/clipboard";
+
+const QRCodeDialog = lazy(async () => ({
+	default: (await import("components/QRCodeDialog")).QRCodeDialog,
+}));
 
 type BulkTab = "create" | "edit" | "delete" | "permissions";
 type UsernameMode = "sequence" | "list";
@@ -59,6 +67,13 @@ type BatchResult = {
 	username: string;
 	ok: boolean;
 	detail: string;
+	subscription?: string;
+	links?: string[];
+};
+
+const absoluteLink = (link?: string | null) => {
+	if (!link) return "";
+	return link.startsWith("/") ? window.location.origin + link : link;
 };
 
 const MAX_BATCH_SIZE = 500;
@@ -104,7 +119,8 @@ const errorDetail = (error: unknown) => {
 
 const runLimited = async (
 	usernames: string[],
-	worker: (username: string) => Promise<void>,
+	worker: (username: string) => Promise<Partial<BatchResult> | undefined>,
+	concurrency = 4,
 ) => {
 	const results = new Array<BatchResult>(usernames.length);
 	let cursor = 0;
@@ -113,15 +129,17 @@ const runLimited = async (
 			const index = cursor++;
 			const username = usernames[index];
 			try {
-				await worker(username);
-				results[index] = { username, ok: true, detail: "Completed" };
+				const extra = await worker(username);
+				results[index] = { username, ok: true, detail: "Completed", ...extra };
 			} catch (error) {
 				results[index] = { username, ok: false, detail: errorDetail(error) };
 			}
 		}
 	};
 	await Promise.all(
-		Array.from({ length: Math.min(4, usernames.length) }, () => runner()),
+		Array.from({ length: Math.min(concurrency, usernames.length) }, () =>
+			runner(),
+		),
 	);
 	return results;
 };
@@ -141,8 +159,31 @@ const Surface = ({ children }: { children: React.ReactNode }) => (
 
 const Results = ({ results }: { results: BatchResult[] }) => {
 	const { t } = useTranslation();
+	const toast = useToast();
+	const setQRCode = useDashboard((state) => state.setQRCode);
+	const setSubLink = useDashboard((state) => state.setSubLink);
 	if (!results.length) return null;
 	const succeeded = results.filter((result) => result.ok).length;
+	// created users with their links, in the order they were made
+	const created = results.filter(
+		(result) => result.ok && (result.subscription || result.links?.length),
+	);
+	const copy = async (text: string) => {
+		if (!text) return;
+		try {
+			await copyTextToClipboard(text);
+			toast({ title: t("copied"), status: "success", duration: 1200 });
+		} catch {
+			toast({ title: t("usersTable.copyFailed"), status: "error" });
+		}
+	};
+	const allLinks = created
+		.map((result) => result.subscription)
+		.filter(Boolean)
+		.join("\n");
+	const allConfigs = created
+		.flatMap((result) => result.links ?? [])
+		.join("\n");
 	return (
 		<Surface>
 			<HStack justify="space-between" align="flex-start" mb={3}>
@@ -192,6 +233,92 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 					</HStack>
 				))}
 			</Stack>
+			{created.length > 0 && (
+				<Box mt={5}>
+					<HStack justify="space-between" align="center" mb={3} flexWrap="wrap">
+						<Text fontWeight="semibold">{t("bulkActions.results.links")}</Text>
+						<HStack spacing={2} flexWrap="wrap">
+							<Button
+								size="sm"
+								leftIcon={<LinkIcon width={16} />}
+								isDisabled={!allLinks}
+								onClick={() => void copy(allLinks)}
+							>
+								{t("bulkActions.results.copyAllLinks")}
+							</Button>
+							<Button
+								size="sm"
+								leftIcon={<ClipboardDocumentIcon width={16} />}
+								isDisabled={!allConfigs}
+								onClick={() => void copy(allConfigs)}
+							>
+								{t("bulkActions.results.copyAllConfigs")}
+							</Button>
+						</HStack>
+					</HStack>
+					<Stack spacing={0} borderTopWidth="1px" borderColor="panel.border">
+						{created.map((result) => (
+							<Box
+								key={result.username}
+								py={3}
+								borderBottomWidth="1px"
+								borderColor="panel.border"
+							>
+								<HStack justify="space-between" align="center" mb={2}>
+									<Code bg="transparent" color="inherit" fontWeight="semibold">
+										{result.username}
+									</Code>
+									<HStack spacing={1}>
+										<Button
+											size="xs"
+											variant="ghost"
+											leftIcon={<QrCodeIcon width={14} />}
+											onClick={() => {
+												setQRCode(result.links ?? [], result.username);
+												setSubLink(result.subscription || null);
+											}}
+										>
+											{t("usersTable.qrCode")}
+										</Button>
+										<Button
+											size="xs"
+											variant="ghost"
+											leftIcon={<LinkIcon width={14} />}
+											isDisabled={!result.subscription}
+											onClick={() => void copy(result.subscription ?? "")}
+										>
+											{t("usersTable.copyLink")}
+										</Button>
+										<Button
+											size="xs"
+											variant="ghost"
+											leftIcon={<ClipboardDocumentIcon width={14} />}
+											isDisabled={!result.links?.length}
+											onClick={() => void copy((result.links ?? []).join("\n"))}
+										>
+											{t("usersTable.copyConfigs")}
+										</Button>
+									</HStack>
+								</HStack>
+								{[result.subscription, ...(result.links ?? [])]
+									.filter(Boolean)
+									.map((link) => (
+										<Text
+											key={link}
+											dir="ltr"
+											fontFamily="mono"
+											fontSize="xs"
+											color="panel.textSecondary"
+											wordBreak="break-all"
+										>
+											{link}
+										</Text>
+									))}
+							</Box>
+						))}
+					</Stack>
+				</Box>
+			)}
 		</Surface>
 	);
 };
@@ -270,6 +397,7 @@ const BulkCreatePanel = ({
 			0,
 			Math.floor(Number(autoDeleteDays) || 0),
 		);
+		// one at a time, so the users are created (and listed) in the order of their names
 		const batchResults = await runLimited(usernames, async (username) => {
 			const body: UserCreateWithService = {
 				username,
@@ -291,8 +419,15 @@ const BulkCreatePanel = ({
 				auto_delete_in_days:
 					normalizedAutoDelete > 0 ? normalizedAutoDelete : null,
 			};
-			await fetch("/v2/users", { method: "POST", body });
-		});
+			const created = await fetch<{
+				subscription_url?: string | null;
+				links?: string[] | null;
+			}>("/v2/users", { method: "POST", body });
+			return {
+				subscription: absoluteLink(created?.subscription_url),
+				links: created?.links ?? [],
+			};
+		}, 1);
 		setResults(batchResults);
 		setIsRunning(false);
 		void refetchUsers(true);
@@ -1134,6 +1269,9 @@ export const BulkActionsPage = () => {
 	}, [activeTab, location.hash, navigate]);
 
 	const setTab = (tab: BulkTab) => navigate({ hash: tab });
+	const isQRCodeDialogOpen = useDashboard(
+		(state) => state.QRcodeLinks !== null,
+	);
 
 	return (
 		<VStack spacing={5} align="stretch" dir={i18n.dir(i18n.language)} w="full">
@@ -1180,6 +1318,11 @@ export const BulkActionsPage = () => {
 					<AlertIcon />
 					{t("bulkActions.noPermission")}
 				</Alert>
+			)}
+			{isQRCodeDialogOpen && (
+				<Suspense fallback={null}>
+					<QRCodeDialog />
+				</Suspense>
 			)}
 		</VStack>
 	);
