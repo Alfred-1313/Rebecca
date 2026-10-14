@@ -34,6 +34,7 @@ import {
 } from "@heroicons/react/24/outline";
 import AdvancedUserActions from "components/AdvancedUserActions";
 import { PanelSelect as Select } from "components/common/PanelSelect";
+import { ConfirmDialog } from "components/dialogs/ConfirmDialog";
 import { PageHeader, PageTabs } from "components/ui";
 import { useAdminsStore } from "contexts/AdminsContext";
 import { useDashboard } from "contexts/DashboardContext";
@@ -71,6 +72,8 @@ type BatchResult = {
 	detail: string;
 	subscription?: string;
 	links?: string[];
+	// deleted again from the results card after the run
+	deleted?: boolean;
 };
 
 const absoluteLink = (link?: string | null) => {
@@ -186,12 +189,59 @@ const ResultAction = ({
 	</Tooltip>
 );
 
-const Results = ({ results }: { results: BatchResult[] }) => {
+const Results = ({
+	results,
+	canDelete = false,
+	onDeleted,
+}: {
+	results: BatchResult[];
+	canDelete?: boolean;
+	onDeleted?: (usernames: string[]) => void;
+}) => {
 	const { t } = useTranslation();
 	const toast = useToast();
 	const setQRCode = useDashboard((state) => state.setQRCode);
 	const setSubLink = useDashboard((state) => state.setSubLink);
+	const performBulkUserAction = useDashboard(
+		(state) => state.performBulkUserAction,
+	);
+	const refetchUsers = useDashboard((state) => state.refetchUsers);
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 	if (!results.length) return null;
+	// users this run created that are still there
+	const createdNames = results
+		.filter((result) => result.ok && !result.deleted)
+		.map((result) => result.username);
+	const deleteCreated = async () => {
+		setDeleting(true);
+		try {
+			const result = await performBulkUserAction({
+				action: "delete_users",
+				usernames: createdNames,
+			});
+			toast({
+				title: t("bulkActions.delete.completed"),
+				description: t("bulkActions.delete.completedDescription", {
+					count: result.count,
+				}),
+				status: "success",
+				isClosable: true,
+			});
+			onDeleted?.(createdNames);
+			void refetchUsers(true);
+		} catch (error) {
+			toast({
+				title: t("bulkActions.delete.failed"),
+				description: errorDetail(error),
+				status: "error",
+				isClosable: true,
+			});
+		} finally {
+			setDeleting(false);
+			setConfirmDelete(false);
+		}
+	};
 	const succeeded = results.filter((result) => result.ok).length;
 	const copy = async (text: string) => {
 		if (!text) return;
@@ -203,11 +253,12 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 		}
 	};
 	// in the order the users were created
-	const allLinks = results
+	const live = results.filter((result) => !result.deleted);
+	const allLinks = live
 		.map((result) => result.subscription)
 		.filter(Boolean)
 		.join("\n");
-	const allConfigs = results.flatMap((result) => result.links ?? []).join("\n");
+	const allConfigs = live.flatMap((result) => result.links ?? []).join("\n");
 	return (
 		<Surface>
 			<HStack justify="space-between" align="flex-start" mb={3} gap={3} flexWrap="wrap">
@@ -241,6 +292,18 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 							{t("bulkActions.results.copyAllConfigs")}
 						</Button>
 					)}
+					{canDelete && createdNames.length > 0 && (
+						<Button
+							size="xs"
+							variant="outline"
+							colorScheme="red"
+							leftIcon={<TrashIcon width={14} />}
+							isLoading={deleting}
+							onClick={() => setConfirmDelete(true)}
+						>
+							{t("bulkActions.results.deleteCreated")}
+						</Button>
+					)}
 					<Badge colorScheme={succeeded === results.length ? "green" : "orange"}>
 						{succeeded}/{results.length}
 					</Badge>
@@ -248,7 +311,9 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 			</HStack>
 			<Stack spacing={0} borderTopWidth="1px" borderColor="panel.border">
 				{results.map((result) => {
-					const hasLinks = Boolean(result.subscription || result.links?.length);
+					const hasLinks =
+						!result.deleted &&
+						Boolean(result.subscription || result.links?.length);
 					return (
 						<HStack
 							key={result.username}
@@ -260,8 +325,19 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 							borderColor="panel.border"
 						>
 							<HStack minW={0}>
-								<Box color={result.ok ? "green.400" : "red.400"} flexShrink={0}>
-									{result.ok ? (
+								<Box
+									color={
+										result.deleted
+											? "panel.textSecondary"
+											: result.ok
+												? "green.400"
+												: "red.400"
+									}
+									flexShrink={0}
+								>
+									{result.deleted ? (
+										<TrashIcon width={18} />
+									) : result.ok ? (
 										<CheckCircleIcon width={18} />
 									) : (
 										<ExclamationCircleIcon width={18} />
@@ -300,21 +376,39 @@ const Results = ({ results }: { results: BatchResult[] }) => {
 									color={result.ok ? "panel.textSecondary" : "red.400"}
 									textAlign="end"
 								>
-									{result.detail}
+									{result.deleted ? t("bulkActions.results.deleted") : result.detail}
 								</Text>
 							)}
 						</HStack>
 					);
 				})}
 			</Stack>
+			<ConfirmDialog
+				isOpen={confirmDelete}
+				onClose={() => setConfirmDelete(false)}
+				onConfirm={deleteCreated}
+				isLoading={deleting}
+				colorScheme="red"
+				confirmLabel={t("bulkActions.results.deleteCreated")}
+				title={t("bulkActions.results.deleteCreatedTitle", {
+					count: createdNames.length,
+				})}
+				description={t("bulkActions.results.deleteCreatedDescription", {
+					names:
+						createdNames.slice(0, 10).join(", ") +
+						(createdNames.length > 10 ? `, +${createdNames.length - 10}` : ""),
+				})}
+			/>
 		</Surface>
 	);
 };
 
 const BulkCreatePanel = ({
 	canConfigurePeriodicUsageReset,
+	canDelete,
 }: {
 	canConfigurePeriodicUsageReset: boolean;
+	canDelete: boolean;
 }) => {
 	const { t } = useTranslation();
 	const toast = useToast();
@@ -763,7 +857,19 @@ const BulkCreatePanel = ({
 					</Button>
 				</HStack>
 			</Surface>
-			<Results results={results} />
+			<Results
+				results={results}
+				canDelete={canDelete}
+				onDeleted={(names) =>
+					setResults((prev) =>
+						prev.map((result) =>
+							names.includes(result.username)
+								? { ...result, deleted: true }
+								: result,
+						),
+					)
+				}
+			/>
 		</VStack>
 	);
 };
@@ -1340,6 +1446,9 @@ export const BulkActionsPage = () => {
 				</Alert>
 			) : activeTab === "create" ? (
 				<BulkCreatePanel
+					canDelete={
+						privileged || Boolean(permissions?.[UserPermissionToggle.Delete])
+					}
 					canConfigurePeriodicUsageReset={
 						privileged ||
 						Boolean(permissions?.[UserPermissionToggle.PeriodicUsageReset])
