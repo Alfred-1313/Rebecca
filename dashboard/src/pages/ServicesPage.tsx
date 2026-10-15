@@ -193,6 +193,9 @@ const ServiceDialog: FC<ServiceDialogProps> = ({
 	const [description, setDescription] = useState(
 		initialService?.description ?? "",
 	);
+	const [usageCoefficient, setUsageCoefficient] = useState(
+		String(initialService?.usage_coefficient ?? 1),
+	);
 	const [selectedAdmins, setSelectedAdmins] = useState<number[]>(
 		initialService?.admin_ids ?? [],
 	);
@@ -231,6 +234,7 @@ const ServiceDialog: FC<ServiceDialogProps> = ({
 		if (isOpen) {
 			setName(initialService?.name ?? "");
 			setDescription(initialService?.description ?? "");
+			setUsageCoefficient(String(initialService?.usage_coefficient ?? 1));
 			setSelectedAdmins(initialService?.admin_ids ?? []);
 			setSelectedHosts(initialService?.hosts.map((host) => host.id) ?? []);
 			setAdminSearch("");
@@ -328,6 +332,14 @@ const ServiceDialog: FC<ServiceDialogProps> = ({
 			return;
 		}
 
+		const coefficient = parseDecimalInput(usageCoefficient);
+		if (coefficient === null || coefficient < 0.01 || coefficient > 100) {
+			toast({
+				status: "warning",
+				title: t("services.validation.usageCoefficientInvalid"),
+			});
+			return;
+		}
 		const assignments: ServiceHostAssignment[] = selectedHosts.map(
 			(hostId, index) => ({
 				host_id: hostId,
@@ -340,6 +352,7 @@ const ServiceDialog: FC<ServiceDialogProps> = ({
 				name: name.trim(),
 				description: description?.trim() || null,
 				admin_ids: selectedAdmins,
+				usage_coefficient: coefficient,
 				hosts: assignments,
 			},
 			initialService?.id,
@@ -435,6 +448,16 @@ const ServiceDialog: FC<ServiceDialogProps> = ({
 									value={description ?? ""}
 									onChange={(event) => setDescription(event.target.value)}
 									maxLength={256}
+								/>
+								<Input
+									label={t("services.fields.usageCoefficient")}
+									type="number"
+									inputMode="decimal"
+									min={0.01}
+									max={100}
+									step={0.01}
+									value={usageCoefficient}
+									onChange={(event) => setUsageCoefficient(event.target.value)}
 								/>
 							</SimpleGrid>
 						</Box>
@@ -828,6 +851,7 @@ const ServicesPage: FC = () => {
 		show_user_traffic: true,
 		delete_user_usage_limit_enabled: false,
 		delete_user_usage_limit_mb: "",
+		usage_coefficient: "",
 	});
 
 	useEffect(() => {
@@ -1337,6 +1361,7 @@ const ServicesPage: FC = () => {
 				users_limit?: number | null;
 				delete_user_usage_limit_enabled?: boolean;
 				delete_user_usage_limit?: number | null;
+				usage_coefficient?: number | null;
 			},
 		) => {
 			if (!selectedService) return false;
@@ -1399,6 +1424,7 @@ const ServicesPage: FC = () => {
 				link.delete_user_usage_limit,
 				MB_IN_BYTES,
 			),
+			usage_coefficient: link.usage_coefficient != null ? String(link.usage_coefficient) : "",
 		});
 	};
 
@@ -1413,7 +1439,16 @@ const ServicesPage: FC = () => {
 		const deleteUserUsageLimitMb = parseDecimalInput(
 			serviceAdminLimitForm.delete_user_usage_limit_mb,
 		);
+		const usageCoefficient = parseDecimalInput(serviceAdminLimitForm.usage_coefficient);
+		if (usageCoefficient !== null && (usageCoefficient < 0.01 || usageCoefficient > 100)) {
+			toast({
+				status: "warning",
+				title: t("services.validation.usageCoefficientInvalid"),
+			});
+			return;
+		}
 		const saved = await saveServiceAdminLimit(editingServiceAdminLimit.id, {
+			usage_coefficient: usageCoefficient,
 			traffic_limit_mode: serviceAdminLimitForm.traffic_limit_mode,
 			data_limit: dataLimitGb !== null ? dataLimitGb * GB_IN_BYTES : null,
 			users_limit: usersLimit,
@@ -2033,6 +2068,27 @@ const ServicesPage: FC = () => {
 								{t("myaccount.createdTraffic")}
 							</option>
 						</Select>
+					</FormControl>
+					<FormControl>
+						<FormLabel>{t("services.fields.usageCoefficient")}</FormLabel>
+						<Input
+							type="number"
+							inputMode="decimal"
+							min={0.01}
+							max={100}
+							step={0.01}
+							placeholder={String(selectedService?.usage_coefficient ?? 1)}
+							value={serviceAdminLimitForm.usage_coefficient}
+							onChange={(event) =>
+								setServiceAdminLimitForm((current) => ({
+									...current,
+									usage_coefficient: event.target.value,
+								}))
+							}
+						/>
+						<FormHelperText>
+							{t("services.adminUsageCoefficientHint", { value: selectedService?.usage_coefficient ?? 1 })}
+						</FormHelperText>
 					</FormControl>
 					<SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
 						<FormControl>
