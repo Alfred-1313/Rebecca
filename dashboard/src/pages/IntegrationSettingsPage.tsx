@@ -916,6 +916,7 @@ export const IntegrationSettingsPage = () => {
 		provider: "letsencrypt" | "zerossl" | "manual" | "node";
 		email: string;
 		nodeId: string;
+		nodeDomain: string;
 		domains: string;
 		fullchain: string;
 		privateKey: string;
@@ -923,6 +924,7 @@ export const IntegrationSettingsPage = () => {
 		provider: "letsencrypt",
 		email: "",
 		nodeId: "",
+		nodeDomain: "",
 		domains: "",
 		fullchain: "",
 		privateKey: "",
@@ -1274,6 +1276,7 @@ export const IntegrationSettingsPage = () => {
 			setCertificateForm((prev) => ({
 				...prev,
 				nodeId: "",
+				nodeDomain: "",
 			}));
 			toast({
 				title: t("settings.subscriptions.nodeCertificateIssued"),
@@ -1554,6 +1557,7 @@ export const IntegrationSettingsPage = () => {
 			}
 			issueNodeCertificateMutation.mutate({
 				node_id: Number(certificateForm.nodeId),
+				domain: certificateForm.nodeDomain.trim(),
 				email: certificateForm.email.trim(),
 			});
 			return;
@@ -3895,6 +3899,22 @@ export const IntegrationSettingsPage = () => {
 												))}
 										</Select>
 										<FormHelperText>{t("settings.subscriptions.nodeCertificateHint")}</FormHelperText>
+									</FormControl>
+								) : null}
+								{certificateForm.provider === "node" ? (
+									<FormControl>
+										<FormLabel>{t("settings.subscriptions.domain")}</FormLabel>
+										<Input
+											placeholder="api.example.com"
+											value={certificateForm.nodeDomain}
+											onChange={(event) =>
+												setCertificateForm((previous) => ({
+													...previous,
+													nodeDomain: event.target.value,
+												}))
+											}
+										/>
+										<FormHelperText>{t("settings.subscriptions.nodeDomainHint")}</FormHelperText>
 									</FormControl>
 								) : null}
 								<FormControl isRequired display={certificateForm.provider === "node" ? "none" : undefined}>

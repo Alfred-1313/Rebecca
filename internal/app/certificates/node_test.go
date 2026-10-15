@@ -42,7 +42,7 @@ func newNodeTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func writeNodeTestCertificate(t *testing.T, ip string, notAfter time.Time) ([]byte, []byte) {
+func writeNodeTestCertificate(t *testing.T, name string, notAfter time.Time) ([]byte, []byte) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -51,12 +51,16 @@ func writeNodeTestCertificate(t *testing.T, ip string, notAfter time.Time) ([]by
 	now := time.Now().UTC()
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(now.UnixNano()),
-		Subject:      pkix.Name{CommonName: ip},
-		IPAddresses:  []net.IP{net.ParseIP(ip)},
+		Subject:      pkix.Name{CommonName: name},
 		NotBefore:    now.Add(-time.Hour),
 		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	if ip := net.ParseIP(name); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else {
+		template.DNSNames = []string{name}
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
@@ -69,13 +73,13 @@ func writeNodeTestCertificate(t *testing.T, ip string, notAfter time.Time) ([]by
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 }
 
-func writeNodeManagedCertificate(t *testing.T, db *sql.DB, base, ip string, notAfter time.Time, metadata string) {
+func writeNodeManagedCertificate(t *testing.T, db *sql.DB, base, name string, notAfter time.Time, metadata string) {
 	t.Helper()
-	dir := filepath.Join(ManagedBaseDir(base), ip)
+	dir := filepath.Join(ManagedBaseDir(base), name)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	fullchain, privateKey := writeNodeTestCertificate(t, ip, notAfter)
+	fullchain, privateKey := writeNodeTestCertificate(t, name, notAfter)
 	if err := os.WriteFile(filepath.Join(dir, "fullchain.pem"), fullchain, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +89,7 @@ func writeNodeManagedCertificate(t *testing.T, db *sql.DB, base, ip string, notA
 	if err := os.WriteFile(filepath.Join(dir, ".metadata"), []byte(metadata), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO subscription_domains (domain, admin_id, email, provider, alt_names, created_at, updated_at) VALUES (?, 7, 'ops@example.com', 'letsencrypt', '[]', ?, ?)`, ip, time.Now().UTC(), time.Now().UTC()); err != nil {
+	if _, err := db.Exec(`INSERT INTO subscription_domains (domain, admin_id, email, provider, alt_names, created_at, updated_at) VALUES (?, 7, 'ops@example.com', 'letsencrypt', '[]', ?, ?)`, name, time.Now().UTC(), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -119,16 +123,39 @@ func TestIssueFromNodeStoresCertificateOnMaster(t *testing.T) {
 	}
 }
 
-func TestIssueFromNodeRejectsNonIPIdentifier(t *testing.T) {
+func TestIssueFromNodeStoresDomainCertificate(t *testing.T) {
+	db := newNodeTestDB(t)
+	base := t.TempDir()
+	fullchain, privateKey := writeNodeTestCertificate(t, "api.example.com", time.Now().UTC().Add(90*24*time.Hour))
+	manager := NewManager(db, Config{BaseDir: base})
+	var gotIdentifier string
+	manager.SetNodeIssuer(func(_ context.Context, _ int64, identifier, _ string) ([]byte, []byte, error) {
+		gotIdentifier = identifier
+		return fullchain, privateKey, nil
+	})
+	record, err := manager.IssueFromNode(context.Background(), NodeIssueRequest{
+		NodeID: 3, Identifier: " API.Example.com ", Email: "ops@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotIdentifier != "api.example.com" || record.Domain != "api.example.com" || record.NodeID == nil || *record.NodeID != 3 || !record.AutoRenew {
+		t.Fatalf("issuer got %q, unexpected record: %+v", gotIdentifier, record)
+	}
+	if _, err := os.Stat(filepath.Join(ManagedBaseDir(base), "api.example.com", "privkey.pem")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIssueFromNodeRejectsInvalidIdentifier(t *testing.T) {
 	db := newNodeTestDB(t)
 	manager := NewManager(db, Config{BaseDir: t.TempDir()})
 	manager.SetNodeIssuer(func(context.Context, int64, string, string) ([]byte, []byte, error) {
-		t.Fatal("issuer must not run for a domain identifier")
+		t.Fatal("issuer must not run for an invalid identifier")
 		return nil, nil, nil
 	})
-	_, err := manager.IssueFromNode(context.Background(), NodeIssueRequest{NodeID: 3, Identifier: "example.com", Email: "ops@example.com"})
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("err = %v, want ErrUnsupported", err)
+	if _, err := manager.IssueFromNode(context.Background(), NodeIssueRequest{NodeID: 3, Identifier: "https://example.com/x", Email: "ops@example.com"}); err == nil {
+		t.Fatal("expected an invalid identifier to be rejected")
 	}
 }
 
@@ -153,6 +180,25 @@ func TestRenewDueRenewsNodeCertificateInsideRenewWindow(t *testing.T) {
 	manager.SetNodeIssuer(func(context.Context, int64, string, string) ([]byte, []byte, error) {
 		calls++
 		fullchain, privateKey := writeNodeTestCertificate(t, "203.0.113.10", time.Now().UTC().Add(6*24*time.Hour))
+		return fullchain, privateKey, nil
+	})
+	if errs := manager.RenewDue(context.Background(), time.Now().UTC().Add(30*24*time.Hour)); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if calls != 1 {
+		t.Fatalf("issuer calls = %d, want 1", calls)
+	}
+}
+
+func TestRenewDueRenewsNodeDomainCertificateBeforeRenewBefore(t *testing.T) {
+	db := newNodeTestDB(t)
+	base := t.TempDir()
+	writeNodeManagedCertificate(t, db, base, "api.example.com", time.Now().UTC().Add(20*24*time.Hour), "issued_via_node=3\nstatus=active\n")
+	manager := NewManager(db, Config{BaseDir: base})
+	calls := 0
+	manager.SetNodeIssuer(func(context.Context, int64, string, string) ([]byte, []byte, error) {
+		calls++
+		fullchain, privateKey := writeNodeTestCertificate(t, "api.example.com", time.Now().UTC().Add(90*24*time.Hour))
 		return fullchain, privateKey, nil
 	})
 	if errs := manager.RenewDue(context.Background(), time.Now().UTC().Add(30*24*time.Hour)); len(errs) != 0 {

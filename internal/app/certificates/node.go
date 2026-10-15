@@ -11,10 +11,9 @@ import (
 )
 
 const (
-	nodeIssuedMetadataKey      = "issued_via_node"
-	nodeCertificateProfile     = "shortlived"
-	nodeCertificateProvider    = "letsencrypt"
-	nodeCertificateRenewWindow = 48 * time.Hour
+	nodeIssuedMetadataKey        = "issued_via_node"
+	nodeCertificateProvider      = "letsencrypt"
+	nodeIPCertificateRenewWindow = 48 * time.Hour
 )
 
 type NodeIssuer func(ctx context.Context, nodeID int64, identifier, email string) ([]byte, []byte, error)
@@ -34,9 +33,9 @@ func (m *Manager) IssueFromNode(ctx context.Context, request NodeIssueRequest) (
 	if m.nodeIssuer == nil {
 		return Record{}, fmt.Errorf("%w: node certificate issuance is not configured", ErrUnsupported)
 	}
-	ip := net.ParseIP(strings.TrimSpace(request.Identifier))
-	if ip == nil {
-		return Record{}, fmt.Errorf("%w: node certificate identifier must be an IP address", ErrUnsupported)
+	identifier, err := normalizeRecordName(request.Identifier)
+	if err != nil {
+		return Record{}, err
 	}
 	email, err := normalizeEmail(request.Email)
 	if err != nil {
@@ -49,17 +48,16 @@ func (m *Manager) IssueFromNode(ctx context.Context, request NodeIssueRequest) (
 	if err := m.ensureAdmin(ctx, request.AdminID); err != nil {
 		return Record{}, err
 	}
-	fullchain, privateKey, err := m.nodeIssuer(ctx, request.NodeID, ip.String(), email)
+	fullchain, privateKey, err := m.nodeIssuer(ctx, request.NodeID, identifier, email)
 	if err != nil {
 		return Record{}, fmt.Errorf("%w: %v", ErrNodeIssue, err)
 	}
 	now := time.Now().UTC()
 	metadata := map[string]string{
 		nodeIssuedMetadataKey: strconv.FormatInt(request.NodeID, 10),
-		"profile":             nodeCertificateProfile,
 		"status":              "active",
 	}
-	return m.store(ctx, ip.String(), request.AdminID, &email, nodeCertificateProvider, nil, fullchain, privateKey, metadata, now, time.Time{})
+	return m.store(ctx, identifier, request.AdminID, &email, nodeCertificateProvider, nil, fullchain, privateKey, metadata, now, time.Time{})
 }
 
 func (m *Manager) renewNodeLocked(ctx context.Context, record Record) (Record, error) {
@@ -82,4 +80,8 @@ func normalizeRecordName(value string) (string, error) {
 		return ip.String(), nil
 	}
 	return normalizeDomain(value)
+}
+
+func nodeIPCertificate(record Record) bool {
+	return record.NodeID != nil && net.ParseIP(record.Domain) != nil
 }

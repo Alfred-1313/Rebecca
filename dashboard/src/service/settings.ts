@@ -273,6 +273,7 @@ export interface CertificateIssuePayload {
 
 export interface NodeCertificateIssuePayload {
 	node_id: number;
+	domain: string;
 	email: string;
 }
 

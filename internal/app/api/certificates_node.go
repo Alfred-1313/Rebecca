@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	certificateapp "github.com/rebeccapanel/rebecca/internal/app/certificates"
 	"github.com/rebeccapanel/rebecca/internal/app/nodecontroller"
@@ -17,6 +18,7 @@ func (s *Server) handleCertificateIssueNode(w http.ResponseWriter, r *http.Reque
 	}
 	var payload struct {
 		NodeID int64  `json:"node_id"`
+		Domain string `json:"domain"`
 		Email  string `json:"email"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, certificateRequestLimit)
@@ -33,9 +35,13 @@ func (s *Server) handleCertificateIssueNode(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	identifier := strings.TrimSpace(payload.Domain)
+	if identifier == "" {
+		identifier = node.Address
+	}
 	record, err := s.certificateManager.IssueFromNode(r.Context(), certificateapp.NodeIssueRequest{
 		NodeID:     payload.NodeID,
-		Identifier: node.Address,
+		Identifier: identifier,
 		Email:      payload.Email,
 	})
 	writeCertificateResponse(w, record, err)
@@ -46,7 +52,7 @@ func (s *Server) issueNodeCertificate(ctx context.Context, nodeID int64, identif
 	if err != nil {
 		return nil, nil, err
 	}
-	if !sameIPAddress(node.Address, identifier) {
+	if net.ParseIP(identifier) != nil && !sameIPAddress(node.Address, identifier) {
 		return nil, nil, fmt.Errorf("node address is %s, not %s; issue a new certificate for the current address", node.Address, identifier)
 	}
 	return s.nodeController.IssueCertificate(ctx, nodeID, identifier, email)

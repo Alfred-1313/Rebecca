@@ -409,7 +409,7 @@ func (m *Manager) RenewDue(ctx context.Context, before time.Time) []error {
 		return []error{err}
 	}
 	errs := []error{}
-	nodeRenewBefore := time.Now().UTC().Add(nodeCertificateRenewWindow)
+	nodeRenewBefore := time.Now().UTC().Add(nodeIPCertificateRenewWindow)
 	for _, record := range records {
 		if !record.AutoRenew || record.NotAfter == nil || record.Status == "revoked" {
 			continue
@@ -419,7 +419,7 @@ func (m *Manager) RenewDue(ctx context.Context, before time.Time) []error {
 			continue
 		}
 		threshold := before
-		if record.NodeID != nil {
+		if nodeIPCertificate(record) {
 			threshold = nodeRenewBefore
 		}
 		if notAfter.After(threshold) {
@@ -752,8 +752,8 @@ func (m *Manager) enrich(record *Record) {
 	record.FingerprintSHA256 = &fingerprint
 	now := time.Now().UTC()
 	expiringWindow := 30 * 24 * time.Hour
-	if record.NodeID != nil {
-		expiringWindow = nodeCertificateRenewWindow
+	if nodeIPCertificate(*record) {
+		expiringWindow = nodeIPCertificateRenewWindow
 	}
 	switch {
 	case now.Before(leaf.NotBefore):
