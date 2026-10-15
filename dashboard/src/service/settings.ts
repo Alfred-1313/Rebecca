@@ -218,6 +218,7 @@ export interface SubscriptionCertificate {
 	fingerprint_sha256: string | null;
 	auto_renew: boolean;
 	serve_tls: boolean;
+	node_id?: number | null;
 }
 
 export interface SubscriptionSettingsBundle {
@@ -268,6 +269,11 @@ export interface CertificateIssuePayload {
 	domains: string[];
 	admin_id?: number | null;
 	provider: "letsencrypt" | "zerossl";
+}
+
+export interface NodeCertificateIssuePayload {
+	node_id: number;
+	email: string;
 }
 
 export interface CertificateRenewPayload {
@@ -782,6 +788,15 @@ export const issueSubscriptionCertificate = async (
 	payload: CertificateIssuePayload,
 ): Promise<SubscriptionCertificate> => {
 	return apiFetch("/settings/subscriptions/certificates/issue", {
+		method: "POST",
+		body: JSON.stringify(payload),
+	});
+};
+
+export const issueNodeSubscriptionCertificate = async (
+	payload: NodeCertificateIssuePayload,
+): Promise<SubscriptionCertificate> => {
+	return apiFetch("/settings/subscriptions/certificates/issue-node", {
 		method: "POST",
 		body: JSON.stringify(payload),
 	});

@@ -58,6 +58,7 @@ import {
 } from "react";
 import { Controller, useForm, useFieldArray } from "react-hook-form";
 import { useTranslation } from "react-i18next";
+import { useNodesQuery } from "contexts/NodesContext";
 import { useMutation, useQuery, useQueryClient } from "react-query";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { fetch as apiFetch } from "service/http";
@@ -74,6 +75,7 @@ import {
 	getSubscriptionSettings,
 	getTelegramSettings,
 	importSubscriptionCertificate,
+	issueNodeSubscriptionCertificate,
 	issueSubscriptionCertificate,
 	type PanelSettingsResponse,
 	renewSubscriptionCertificate,
@@ -911,14 +913,16 @@ export const IntegrationSettingsPage = () => {
 	const [isOpeningPHPMyAdminExternal, setOpeningPHPMyAdminExternal] =
 		useState(false);
 	const [certificateForm, setCertificateForm] = useState<{
-		provider: "letsencrypt" | "zerossl" | "manual";
+		provider: "letsencrypt" | "zerossl" | "manual" | "node";
 		email: string;
+		nodeId: string;
 		domains: string;
 		fullchain: string;
 		privateKey: string;
 	}>({
 		provider: "letsencrypt",
 		email: "",
+		nodeId: "",
 		domains: "",
 		fullchain: "",
 		privateKey: "",
@@ -1260,6 +1264,27 @@ export const IntegrationSettingsPage = () => {
 			generateErrorMessage(error, toast);
 		},
 	});
+	const { data: nodeList = [] } = useNodesQuery({
+		enabled: isCertificateDialogOpen,
+	});
+	const issueNodeCertificateMutation = useMutation(issueNodeSubscriptionCertificate, {
+		onSuccess: (cert) => {
+			updateCertificateCache(cert);
+			setCertificateDialogOpen(false);
+			setCertificateForm((prev) => ({
+				...prev,
+				nodeId: "",
+			}));
+			toast({
+				title: t("settings.subscriptions.nodeCertificateIssued"),
+				status: "success",
+				duration: 3000,
+			});
+		},
+		onError: (error) => {
+			generateErrorMessage(error, toast);
+		},
+	});
 	const importCertificateMutation = useMutation(importSubscriptionCertificate, {
 		onSuccess: (cert) => {
 			updateCertificateCache(cert);
@@ -1518,6 +1543,21 @@ export const IntegrationSettingsPage = () => {
 			});
 			return;
 		}
+		if (certificateForm.provider === "node") {
+			if (!certificateForm.email.trim() || !certificateForm.nodeId) {
+				toast({
+					title: t("settings.subscriptions.certificateMissingInput"),
+					status: "warning",
+					duration: 2500,
+				});
+				return;
+			}
+			issueNodeCertificateMutation.mutate({
+				node_id: Number(certificateForm.nodeId),
+				email: certificateForm.email.trim(),
+			});
+			return;
+		}
 		if (!certificateForm.email.trim() || domains.length === 0) {
 			toast({
 				title: t("settings.subscriptions.certificateMissingInput"),
@@ -1627,6 +1667,11 @@ export const IntegrationSettingsPage = () => {
 						<Badge colorScheme="blue">
 							{certificate.provider || "unknown"}
 						</Badge>
+						{certificate.node_id ? (
+							<Badge colorScheme="purple">
+								{t("settings.subscriptions.viaNode")} #{certificate.node_id}
+							</Badge>
+						) : null}
 					</HStack>
 				),
 			},
@@ -1737,7 +1782,9 @@ export const IntegrationSettingsPage = () => {
 		return actions;
 	};
 	const isCertificateMutationLoading =
-		issueCertificateMutation.isLoading || importCertificateMutation.isLoading;
+		issueCertificateMutation.isLoading ||
+		issueNodeCertificateMutation.isLoading ||
+		importCertificateMutation.isLoading;
 	const certificateManager = (
 		<Stack spacing={3}>
 			<ResourceListCard
@@ -3791,12 +3838,14 @@ export const IntegrationSettingsPage = () => {
 												provider: event.target.value as
 													| "letsencrypt"
 													| "zerossl"
-													| "manual",
+													| "manual"
+													| "node",
 											}))
 										}
 									>
 										<option value="letsencrypt">Certbot / Let's Encrypt</option>
 										<option value="zerossl">ZeroSSL</option>
+										<option value="node">{t("settings.subscriptions.nodeCertificate")}</option>
 										<option value="manual">
 											{t("settings.subscriptions.manualCertificate")}
 										</option>
@@ -3823,7 +3872,32 @@ export const IntegrationSettingsPage = () => {
 										/>
 									</FormControl>
 								) : null}
-								<FormControl isRequired>
+								{certificateForm.provider === "node" ? (
+									<FormControl isRequired>
+										<FormLabel>{t("settings.subscriptions.nodeCertificateNode")}</FormLabel>
+										<Select
+											value={certificateForm.nodeId}
+											showSearch={false}
+											onChange={(event) =>
+												setCertificateForm((previous) => ({
+													...previous,
+													nodeId: event.target.value,
+												}))
+											}
+										>
+											<option value="">{t("settings.subscriptions.selectNode")}</option>
+											{nodeList
+												.filter((node) => node.id != null)
+												.map((node) => (
+													<option key={node.id} value={String(node.id)}>
+														{node.name} ({node.address})
+													</option>
+												))}
+										</Select>
+										<FormHelperText>{t("settings.subscriptions.nodeCertificateHint")}</FormHelperText>
+									</FormControl>
+								) : null}
+								<FormControl isRequired display={certificateForm.provider === "node" ? "none" : undefined}>
 									<FormLabel>
 										{certificateForm.provider === "manual"
 											? t("settings.subscriptions.domain")

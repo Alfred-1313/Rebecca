@@ -190,6 +190,7 @@ func (s *Server) registerSettingsRoutes(r chi.Router) {
 	r.HandleFunc("/settings/telegram", s.requireSudo(s.handleTelegramSettings))
 	r.HandleFunc("/settings/placeholders", s.requireAdmin(s.handleSubscriptionPlaceholders))
 	r.HandleFunc("/settings/subscriptions/certificates/issue", s.requireSudo(s.handleCertificateIssue))
+	r.HandleFunc("/settings/subscriptions/certificates/issue-node", s.requireSudo(s.handleCertificateIssueNode))
 	r.HandleFunc("/settings/subscriptions/certificates/import", s.requireSudo(s.handleCertificateImport))
 	r.HandleFunc("/settings/subscriptions/certificates/renew", s.requireSudo(s.handleCertificateRenew))
 	r.HandleFunc("/settings/subscriptions/certificates/*", s.requireSudo(s.handleCertificatePath))

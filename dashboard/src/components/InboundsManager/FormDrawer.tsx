@@ -27,6 +27,7 @@ import {
 	ModalOverlay,
 	Radio,
 	RadioGroup,
+	Select,
 	SimpleGrid,
 	Stack,
 	Switch,
@@ -74,6 +75,11 @@ import {
 	getVlessEncAuthBlocks,
 	type VlessEncAuthBlock,
 } from "service/xray";
+import { useQuery } from "react-query";
+import {
+	getSubscriptionSettings,
+	type SubscriptionSettingsBundle,
+} from "service/settings";
 import {
 	buildInboundPayload,
 	createDefaultHysteriaUdpMask,
@@ -449,6 +455,11 @@ export const InboundFormModal: FC<Props> = ({
 		useWatch({ control, name: "streamSecurity" }) || watch("streamSecurity");
 	const sniffingEnabled =
 		useWatch({ control, name: "sniffingEnabled" }) ?? watch("sniffingEnabled");
+	const { data: subscriptionBundle } = useQuery<SubscriptionSettingsBundle>(
+		"subscription-settings",
+		getSubscriptionSettings,
+		{ refetchOnWindowFocus: false },
+	);
 	const tlsCertificates =
 		useWatch({ control, name: "tlsCertificates" }) ||
 		watch("tlsCertificates") ||
@@ -6759,6 +6770,46 @@ export const InboundFormModal: FC<Props> = ({
 																	)}
 																/>
 															</FormControl>
+															{certConfig.useFile ? (
+																<FormControl>
+																	<FormLabel>{t("inbounds.tls.existingCertificate")}</FormLabel>
+																	<Select
+																		placeholder={t("inbounds.tls.chooseCertificate")}
+																		onChange={(event) => {
+																			const certificate = subscriptionBundle?.certificates.find(
+																				(item) => item.path === event.target.value,
+																			);
+																			if (!certificate) {
+																				return;
+																			}
+																			form.setValue(
+																				`tlsCertificates.${index}.certFile` as const,
+																				`${certificate.path}fullchain.pem`,
+																				{ shouldDirty: true },
+																			);
+																			form.setValue(
+																				`tlsCertificates.${index}.keyFile` as const,
+																				`${certificate.path}privkey.pem`,
+																				{ shouldDirty: true },
+																			);
+																		}}
+																	>
+																		{(subscriptionBundle?.certificates ?? [])
+																			.filter(
+																				(item) =>
+																					Boolean(item.path) &&
+																					item.status !== "missing" &&
+																					item.status !== "invalid" &&
+																					item.status !== "revoked",
+																			)
+																			.map((item) => (
+																				<option key={item.domain} value={item.path}>
+																					{item.domain}
+																				</option>
+																			))}
+																	</Select>
+																</FormControl>
+															) : null}
 															{certConfig.useFile ? (
 																<SimpleGrid
 																	columns={{ base: 1, md: 2 }}
