@@ -3917,7 +3917,7 @@ export const IntegrationSettingsPage = () => {
 										<FormHelperText>{t("settings.subscriptions.nodeDomainHint")}</FormHelperText>
 									</FormControl>
 								) : null}
-								<FormControl isRequired display={certificateForm.provider === "node" ? "none" : undefined}>
+								<FormControl isRequired={certificateForm.provider !== "node"} display={certificateForm.provider === "node" ? "none" : undefined}>
 									<FormLabel>
 										{certificateForm.provider === "manual"
 											? t("settings.subscriptions.domain")
