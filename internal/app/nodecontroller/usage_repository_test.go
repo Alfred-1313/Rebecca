@@ -878,3 +878,49 @@ func assertString(t *testing.T, db *sql.DB, query string, expected string) {
 		t.Fatalf("%s: expected %q, got %q", query, expected, actual)
 	}
 }
+
+func TestRepositoryAdminUsageFollowsNodeInboundAndServiceCoefficients(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "usage-admin-chain.db")+"?_pragma=busy_timeout(30000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	createUsageTables(t, ctx, db)
+
+	_, err = db.ExecContext(ctx, `
+INSERT INTO admins (id, users_usage, lifetime_usage) VALUES (1, 0, 0), (2, 0, 0), (3, 0, 0);
+INSERT INTO services (id, used_traffic, lifetime_used_traffic, users_usage, usage_coefficient, updated_at) VALUES (5, 0, 0, 0, 5, CURRENT_TIMESTAMP);
+INSERT INTO services (id, used_traffic, lifetime_used_traffic, users_usage, updated_at) VALUES (6, 0, 0, 0, CURRENT_TIMESTAMP);
+INSERT INTO service_admins (admin_id, service_id, used_traffic, lifetime_used_traffic, usage_coefficient, updated_at) VALUES (1, 5, 0, 0, NULL, CURRENT_TIMESTAMP), (2, 5, 0, 0, 7, CURRENT_TIMESTAMP), (3, 6, 0, 0, NULL, CURRENT_TIMESTAMP);
+INSERT INTO users (id, status, used_traffic, data_limit, admin_id, service_id) VALUES (10, 'active', 0, NULL, 1, 5), (11, 'active', 0, NULL, 2, 5), (12, 'active', 0, NULL, 3, 6);
+INSERT INTO nodes (id, status, uplink, downlink, data_limit, usage_coefficient) VALUES (7, 'connected', 0, 0, NULL, 2);
+INSERT INTO master_usage (id, uplink, downlink) VALUES (1, 0, 0);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewRepository(db, "sqlite")
+	err = repo.PersistCollectedUsage(
+		ctx,
+		NodeRow{ID: 7, UsageCoefficient: 2},
+		[]UserUsageDelta{
+			{UserID: 10, Value: 100, InboundCoefficient: 3},
+			{UserID: 11, Value: 100, InboundCoefficient: 3},
+			{UserID: 12, Value: 100, InboundCoefficient: 3},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertInt64(t, db, `SELECT used_traffic FROM users WHERE id = 10`, 600)
+	assertInt64(t, db, `SELECT used_traffic FROM services WHERE id = 5`, 1200)
+	assertInt64(t, db, `SELECT used_traffic FROM service_admins WHERE admin_id = 1 AND service_id = 5`, 3000)
+	assertInt64(t, db, `SELECT used_traffic FROM service_admins WHERE admin_id = 2 AND service_id = 5`, 4200)
+	assertInt64(t, db, `SELECT users_usage FROM admins WHERE id = 1`, 3000)
+	assertInt64(t, db, `SELECT users_usage FROM admins WHERE id = 2`, 4200)
+	assertInt64(t, db, `SELECT used_traffic FROM service_admins WHERE admin_id = 3 AND service_id = 6`, 600)
+	assertInt64(t, db, `SELECT users_usage FROM admins WHERE id = 3`, 600)
+}

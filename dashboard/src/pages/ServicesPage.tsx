@@ -332,7 +332,8 @@ const ServiceDialog: FC<ServiceDialogProps> = ({
 			return;
 		}
 
-		const coefficient = parseDecimalInput(usageCoefficient);
+		const coefficient =
+			usageCoefficient.trim() === "" ? 1 : parseDecimalInput(usageCoefficient);
 		if (coefficient === null || coefficient < 0.01 || coefficient > 100) {
 			toast({
 				status: "warning",
@@ -1350,6 +1351,7 @@ const ServicesPage: FC = () => {
 	};
 
 	const selectedService = serviceDetail;
+	const serviceDefaultCoefficient = selectedService?.usage_coefficient ?? 1;
 
 	const saveServiceAdminLimit = useCallback(
 		async (
@@ -1674,6 +1676,72 @@ const ServicesPage: FC = () => {
 				),
 			},
 			{
+				id: "usage_coefficient",
+				header: t("services.usageCoefficientColumn"),
+				priority: "low",
+				hideBelow: "xl",
+				width: "230px",
+				maxWidth: "260px",
+				mobilePriority: 7,
+				mobileMetaLabel: t("services.usageCoefficientColumn"),
+				cell: (link) => {
+					const coefficient = link.usage_coefficient ?? null;
+					return (
+						<HStack spacing={2}>
+							<Select
+								size="sm"
+								value={coefficient === null ? "default" : "custom"}
+								disabled={savingAdminLimitId === link.id}
+								onClick={(event) => event.stopPropagation()}
+								onChange={(event) =>
+									saveServiceAdminLimit(link.id, {
+										usage_coefficient:
+											event.target.value === "custom" ? serviceDefaultCoefficient : null,
+									})
+								}
+							>
+								<option value="default">
+									{t("services.usageCoefficientDefault", { value: serviceDefaultCoefficient })}
+								</option>
+								<option value="custom">{t("services.usageCoefficientCustom")}</option>
+							</Select>
+							{coefficient !== null ? (
+								<Input
+									key={`${link.id}-${coefficient}`}
+									size="sm"
+									type="number"
+									inputMode="decimal"
+									min={0.01}
+									max={100}
+									step={0.01}
+									w="90px"
+									defaultValue={coefficient}
+									disabled={savingAdminLimitId === link.id}
+									onClick={(event) => event.stopPropagation()}
+									onInput={(event) => {
+										event.currentTarget.value = sanitizeDecimalInput(event.currentTarget.value);
+									}}
+									onBlur={(event) => {
+										const value = parseDecimalInput(event.target.value);
+										if (value === null || value < 0.01 || value > 100) {
+											toast({
+												status: "warning",
+												title: t("services.validation.usageCoefficientInvalid"),
+											});
+											event.target.value = String(coefficient);
+											return;
+										}
+										if (value !== coefficient) {
+											saveServiceAdminLimit(link.id, { usage_coefficient: value });
+										}
+									}}
+								/>
+							) : null}
+						</HStack>
+					);
+				},
+			},
+			{
 				id: "flags",
 				header: t("admins.permissionsTabLabel"),
 				priority: "low",
@@ -1714,7 +1782,7 @@ const ServicesPage: FC = () => {
 				),
 			},
 		],
-		[saveServiceAdminLimit, savingAdminLimitId, t],
+		[saveServiceAdminLimit, savingAdminLimitId, serviceDefaultCoefficient, t, toast],
 	);
 
 	const serviceAdminRowActions = (
@@ -2070,7 +2138,7 @@ const ServicesPage: FC = () => {
 						</Select>
 					</FormControl>
 					<FormControl>
-						<FormLabel>{t("services.fields.usageCoefficient")}</FormLabel>
+						<FormLabel>{t("services.usageCoefficientColumn")}</FormLabel>
 						<Input
 							type="number"
 							inputMode="decimal"
