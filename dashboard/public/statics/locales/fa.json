@@ -2829,6 +2829,7 @@
 	"inbounds.reality.mldsaError": "امکان ایجاد کلید ML-DSA-65 وجود ندارد",
 	"inbounds.cloneTitle": "تکثیر اینباند",
 	"inbounds.targets": "مقصدها (Targets)",
+	"inbounds.selectAllCustomNodes": "انتخاب همه نودهای کاستوم",
 	"inbounds.shadowsocks.method": "روش رمزنگاری (Encryption method)",
 	"inbounds.shadowsocks.ivCheck": "بررسی IV",
 	"inbounds.l2tp.fixedPortsTitle": "پروتکل L2TP/IPsec از پورت‌های ثابت استفاده می‌کند",

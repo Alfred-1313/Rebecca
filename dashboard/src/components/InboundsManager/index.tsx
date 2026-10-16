@@ -30,6 +30,7 @@ import {
 	protocolOptions,
 	type RawInbound,
 } from "utils/inbounds";
+import { getInboundTargetIds } from "utils/inboundTargets";
 import { SizeFormatter } from "utils/outbound";
 import {
 	DEFAULT_SEARCH_MATCH_OPTIONS,
@@ -77,13 +78,6 @@ const normalizeInboundTargets = (inbound: RawInbound): RawInbound => ({
 		(inbound as { effective_targets?: unknown }).effective_targets,
 	),
 });
-
-const getInboundTargetIds = (inbound: RawInbound) =>
-	inbound.effective_targets?.length
-		? inbound.effective_targets
-		: inbound.targets?.length
-			? inbound.targets
-			: ["master"];
 
 export const InboundsManager: FC = () => {
 	const { t } = useTranslation();

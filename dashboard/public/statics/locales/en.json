@@ -2823,6 +2823,7 @@
 	"inbounds.reality.mldsaError": "Unable to generate ML-DSA-65",
 	"inbounds.cloneTitle": "Clone inbound",
 	"inbounds.targets": "Targets",
+	"inbounds.selectAllCustomNodes": "Select all custom nodes",
 	"inbounds.shadowsocks.method": "Encryption method",
 	"inbounds.shadowsocks.ivCheck": "IV check",
 	"inbounds.l2tp.fixedPortsTitle": "L2TP/IPsec uses fixed ports",

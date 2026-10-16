@@ -102,6 +102,10 @@ import {
 	validateInboundFormFields,
 	validateInboundFormValues,
 } from "utils/inbounds";
+import {
+	getCustomNodeTargetIds,
+	sortInboundTargets,
+} from "utils/inboundTargets";
 import { NumericInput } from "../common/NumericInput";
 import { DeleteConfirmDialog } from "../dialogs/ConfirmDialog";
 import {
@@ -636,7 +640,7 @@ export const InboundFormModal: FC<Props> = ({
 	const availableTargets = useMemo<CoreConfigTarget[]>(
 		() =>
 			configTargets.length
-				? configTargets
+				? sortInboundTargets(configTargets)
 				: [
 						{
 							id: "master",
@@ -647,6 +651,10 @@ export const InboundFormModal: FC<Props> = ({
 						},
 					],
 		[configTargets, t],
+	);
+	const customTargetIds = useMemo(
+		() => getCustomNodeTargetIds(availableTargets),
+		[availableTargets],
 	);
 
 	useEffect(() => {
@@ -7466,44 +7474,77 @@ export const InboundFormModal: FC<Props> = ({
 											Boolean(value?.length) ||
 											t("inbounds.error.targetsRequired"),
 									}}
-									render={({ field }) => (
-										<CheckboxGroup
-											value={field.value || []}
-											onChange={(value) => field.onChange(value)}
-										>
-											<SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
-												{availableTargets.map((target) => (
-													<Box
-														key={target.id}
-														borderWidth="1px"
-														borderColor={sectionBorder}
-														borderRadius="md"
-														p={3}
+									render={({ field }) => {
+										const selectedIds: string[] = field.value || [];
+										const allCustomSelected =
+											customTargetIds.length > 0 &&
+											customTargetIds.every((id) => selectedIds.includes(id));
+										const someCustomSelected =
+											!allCustomSelected &&
+											customTargetIds.some((id) => selectedIds.includes(id));
+										return (
+											<VStack align="stretch" spacing={3}>
+												{customTargetIds.length > 0 && (
+													<Checkbox
+														isChecked={allCustomSelected}
+														isIndeterminate={someCustomSelected}
+														onChange={() =>
+															field.onChange(
+																allCustomSelected
+																	? selectedIds.filter(
+																			(id) => !customTargetIds.includes(id),
+																		)
+																	: [
+																			...selectedIds,
+																			...customTargetIds.filter(
+																				(id) => !selectedIds.includes(id),
+																			),
+																		],
+															)
+														}
 													>
-														<Checkbox value={target.id}>
-															<HStack spacing={2}>
-																<Text>
-																	{target.type === "master"
-																		? t("default")
-																		: target.name}
-																</Text>
-																<Tag size="sm" colorScheme="gray">
-																	{target.type === "master"
-																		? t("default")
-																		: target.mode}
-																</Tag>
-															</HStack>
-														</Checkbox>
-													</Box>
-												))}
-											</SimpleGrid>
-											{errors.targetIds && (
-												<Text fontSize="xs" color="red.500" mt={2}>
-													{String(errors.targetIds.message)}
-												</Text>
-											)}
-										</CheckboxGroup>
-									)}
+														{t("inbounds.selectAllCustomNodes")}
+													</Checkbox>
+												)}
+												<CheckboxGroup
+													value={selectedIds}
+													onChange={(value) => field.onChange(value)}
+												>
+													<SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
+														{availableTargets.map((target) => (
+															<Box
+																key={target.id}
+																borderWidth="1px"
+																borderColor={sectionBorder}
+																borderRadius="md"
+																p={3}
+															>
+																<Checkbox value={target.id}>
+																	<HStack spacing={2}>
+																		<Text>
+																			{target.type === "master"
+																				? t("default")
+																				: target.name}
+																		</Text>
+																		<Tag size="sm" colorScheme="gray">
+																			{target.type === "master"
+																				? t("default")
+																				: target.mode}
+																		</Tag>
+																	</HStack>
+																</Checkbox>
+															</Box>
+														))}
+													</SimpleGrid>
+													{errors.targetIds && (
+														<Text fontSize="xs" color="red.500" mt={2}>
+															{String(errors.targetIds.message)}
+														</Text>
+													)}
+												</CheckboxGroup>
+											</VStack>
+										);
+									}}
 								/>
 							</TabPanel>
 						</TabPanels>
