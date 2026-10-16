@@ -42,7 +42,7 @@ import { NoSymbolIcon } from "@heroicons/react/24/solid";
 import type { SortingState } from "@tanstack/react-table";
 import classNames from "classnames";
 import { useAdminsStore } from "contexts/AdminsContext";
-import { useContainerMinWidth } from "hooks/useContainerMinWidth";
+import { useContainerMinWidths } from "hooks/useContainerMinWidths";
 import useGetUser from "hooks/useGetUser";
 import {
 	type FC,
@@ -54,6 +54,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { fetch } from "service/http";
 import type { Admin } from "types/Admin";
 import {
 	AdminManagementPermission,
@@ -92,6 +93,12 @@ const ADMIN_TRAFFIC_OPTIONS = [
 ];
 
 const QUICK_ACTIONS_MIN_TABLE_WIDTH = 1250;
+const SPEED_MIN_TABLE_WIDTH = 1100;
+type AdminSpeedMap = Record<
+	string,
+	{ upload_speed: number; download_speed: number }
+>;
+
 const QUICK_ACTION_IDS = [
 	"edit",
 	"permissions",
@@ -844,9 +851,25 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 	};
 
 	const isWide = useBreakpointValue({ base: false, xl: true }) ?? false;
-	const [tableSectionRef, showQuickActions] = useContainerMinWidth(
-		QUICK_ACTIONS_MIN_TABLE_WIDTH,
-	);
+	const [adminSpeeds, setAdminSpeeds] = useState<AdminSpeedMap>({});
+	useEffect(() => {
+		let active = true;
+		const loadSpeeds = () => {
+			fetch<AdminSpeedMap>("/admins/speeds")
+				.then((data) => {
+					if (active) setAdminSpeeds(data || {});
+				})
+				.catch(() => undefined);
+		};
+		loadSpeeds();
+		const timer = window.setInterval(loadSpeeds, 5000);
+		return () => {
+			active = false;
+			window.clearInterval(timer);
+		};
+	}, []);
+	const [tableSectionRef, [showQuickActions, showSpeed]] =
+		useContainerMinWidths(QUICK_ACTIONS_MIN_TABLE_WIDTH, SPEED_MIN_TABLE_WIDTH);
 	const rowActionsRef = useRef<(admin: Admin) => DataTableRowAction<Admin>[]>(
 		() => [],
 	);
@@ -967,7 +990,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				mobileSummary: true,
 				mobileMetaLabel: t("usersTable.traffic"),
 				cell: (admin) => (
-					<Box maxW="40rem">
+					<Box maxW="32rem">
 						<UserUsageBar
 							variant="stacked"
 							used={getAdminEffectiveUsage(admin)}
@@ -975,6 +998,37 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 						/>
 					</Box>
 				),
+			},
+			{
+				id: "speed",
+				header: t("summary.speed"),
+				priority: "medium",
+				width: "1%",
+				desktopVisible: showSpeed,
+				hideOnMobile: true,
+				cell: (admin) => {
+					const speed = adminSpeeds[String(admin.id)];
+					return (
+						<Stack
+							spacing={0}
+							lineHeight="1.35"
+							whiteSpace="nowrap"
+							fontSize="xs"
+							dir="ltr"
+							sx={{
+								fontVariantNumeric: "tabular-nums",
+								unicodeBidi: "isolate",
+							}}
+						>
+							<Text color="teal.400">
+								↑ {formatBytes(speed?.upload_speed ?? 0)}/s
+							</Text>
+							<Text color="blue.400">
+								↓ {formatBytes(speed?.download_speed ?? 0)}/s
+							</Text>
+						</Stack>
+					);
+				},
 			},
 			{
 				id: "remaining_traffic",
@@ -1052,7 +1106,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				),
 			},
 		],
-		[isWide, showQuickActions, locale, t],
+		[adminSpeeds, isWide, showQuickActions, showSpeed, locale, t],
 	);
 
 	const adminRowActions = (admin: Admin): DataTableRowAction<Admin>[] => {

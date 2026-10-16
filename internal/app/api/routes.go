@@ -114,6 +114,7 @@ func (s *Server) registerAdminRoutes(r chi.Router) {
 	r.HandleFunc("/admin/*", s.requireAdmin(s.handleAdminMutationPath))
 	r.HandleFunc("/admin", s.requireAdmin(s.handleAdminRoot))
 	r.HandleFunc("/admins", s.requireAdmin(s.handleAdminsList))
+	r.HandleFunc("/admins/speeds", s.requireAdmin(s.handleAdminsSpeeds))
 }
 
 func (s *Server) registerMyAccountRoutes(r chi.Router) {
