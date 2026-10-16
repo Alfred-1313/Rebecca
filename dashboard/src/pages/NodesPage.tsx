@@ -76,6 +76,7 @@ import { useMutation, useQuery, useQueryClient } from "react-query";
 import { useNavigate } from "react-router-dom";
 import { fetch as apiFetch } from "service/http";
 import { formatBytes } from "utils/formatByte";
+import { summarizeNodes } from "utils/resourceSummary";
 import {
 	DEFAULT_SEARCH_MATCH_OPTIONS,
 	matchesAnySearch,
@@ -91,8 +92,10 @@ import {
 import {
 	DataTable,
 	PageLoadingSkeleton,
+	ResourceSummaryPills,
 	type DataTableColumn,
 	type DataTableRowAction,
+	type ResourceSummaryItem,
 } from "../components/ui";
 import { CoreVersionDialog } from "../components/CoreVersionDialog";
 import type { BuildCatalog } from "../components/BuildVersionSelect";
@@ -1795,14 +1798,57 @@ export const NodesPage: FC = () => {
 		});
 	};
 
-	const nodeSummary = useMemo(() => {
-		const items = nodes ?? [];
-		return {
-			total: items.length,
-			connected: items.filter((node) => node.status === "connected").length,
-			disabled: items.filter((node) => node.status === "disabled").length,
-		};
-	}, [nodes]);
+	const nodeSummaryItems = useMemo<ResourceSummaryItem[]>(() => {
+		const summary = summarizeNodes(nodes ?? []);
+		const items: ResourceSummaryItem[] = [
+			{ label: t("total"), value: summary.total, colorScheme: "gray" },
+			{
+				label: t("status.connected"),
+				value: summary.connected,
+				colorScheme: "green",
+			},
+		];
+		if (summary.connecting > 0) {
+			items.push({
+				label: t("nodeModal.status.connecting"),
+				value: summary.connecting,
+				colorScheme: "yellow",
+			});
+		}
+		if (summary.error > 0) {
+			items.push({
+				label: t("nodeModal.status.error"),
+				value: summary.error,
+				colorScheme: "red",
+			});
+		}
+		if (summary.limited > 0) {
+			items.push({
+				label: t("status.limited"),
+				value: summary.limited,
+				colorScheme: "orange",
+			});
+		}
+		items.push(
+			{
+				label: t("nodes.disabled"),
+				value: summary.disabled,
+				colorScheme: "gray",
+			},
+			{
+				label: t("summary.usage"),
+				value: formatBytes(summary.usage, 2),
+				colorScheme: "blue",
+				helper: `↑ ${formatBytes(summary.upload, 2)} · ↓ ${formatBytes(summary.download, 2)}`,
+			},
+			{
+				label: t("summary.speed"),
+				value: `↑ ${formatBytes(summary.uploadSpeed, 2)}/s · ↓ ${formatBytes(summary.downloadSpeed, 2)}/s`,
+				colorScheme: "cyan",
+			},
+		);
+		return items;
+	}, [nodes, t]);
 
 	const hasConnectedNodes = useMemo(
 		() =>
@@ -2799,17 +2845,7 @@ export const NodesPage: FC = () => {
 						minW={{ base: "0", xl: "210px" }}
 					>
 						<Text fontWeight="semibold">{t("nodes.manageNodesHeader")}</Text>
-						<HStack spacing={2} flexWrap="wrap">
-							<Tag size="sm" colorScheme="gray" variant="subtle">
-								{t("total")}: {nodeSummary.total}
-							</Tag>
-							<Tag size="sm" colorScheme="green" variant="subtle">
-								{t("status.connected")}: {nodeSummary.connected}
-							</Tag>
-							<Tag size="sm" colorScheme="gray" variant="subtle">
-								{t("nodes.disabled")}: {nodeSummary.disabled}
-							</Tag>
-						</HStack>
+						<ResourceSummaryPills items={nodeSummaryItems} />
 					</VStack>
 					<SimpleGrid
 						columns={{ base: 2, md: 4 }}

@@ -60,6 +60,7 @@ import {
 	AdminTrafficLimitMode,
 } from "types/Admin";
 import { formatBytes } from "utils/formatByte";
+import { summarizeAdmins } from "utils/resourceSummary";
 import {
 	generateErrorMessage,
 	generateSuccessMessage,
@@ -692,8 +693,12 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 		const limitedCount = summaryAdmins.filter(
 			(admin) => !getAdminIsExpired(admin, nowUnix) && getAdminIsLimited(admin),
 		).length;
+		const totals = hasCompleteSummary ? summarizeAdmins(summaryAdmins) : null;
 		return {
 			totalCount: adminOptions.length || total,
+			usersTotal: totals ? totals.users : null,
+			onlineUsersTotal: totals ? totals.online : null,
+			usageTotal: totals ? totals.usage : null,
 			fullAccessCount: hasCompleteSummary
 				? summaryAdmins.filter((admin) => admin.role === AdminRole.FullAccess)
 						.length
@@ -776,6 +781,24 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 			label: t("status.disabled"),
 			value: formatSummaryCount(summaryData.disabledCount),
 			colorScheme: "gray",
+		},
+		{
+			label: t("users"),
+			value: formatSummaryCount(summaryData.usersTotal),
+			colorScheme: "orange",
+		},
+		{
+			label: t("onlineStatus.online"),
+			value: formatSummaryCount(summaryData.onlineUsersTotal),
+			colorScheme: "teal",
+		},
+		{
+			label: t("summary.usage"),
+			value:
+				summaryData.usageTotal === null
+					? "-"
+					: formatBytes(summaryData.usageTotal),
+			colorScheme: "blue",
 		},
 	];
 

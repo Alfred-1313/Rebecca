@@ -36,6 +36,7 @@ import {
 	matchesAnySearch,
 } from "utils/searchMatch";
 import { sortByTraffic, type TrafficSortOrder } from "utils/trafficSort";
+import { type InboundSpeedMap, summarizeInbounds } from "utils/resourceSummary";
 import { SearchableTagSelect } from "../common/SearchableTagSelect";
 import { SearchInput } from "../common/SearchInput";
 import { ConfirmDialog, DeleteConfirmDialog } from "../dialogs/ConfirmDialog";
@@ -88,7 +89,7 @@ export const InboundsManager: FC = () => {
 	const { t } = useTranslation();
 	const toast = useToast();
 	const [inbounds, setInbounds] = useState<RawInbound[]>([]);
-	const [speeds, setSpeeds] = useState<Record<string, { upload_speed: number; download_speed: number }>>({});
+	const [speeds, setSpeeds] = useState<InboundSpeedMap>({});
 	const [configTargets, setConfigTargets] = useState<CoreConfigTarget[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isMutating, setIsMutating] = useState(false);
@@ -132,7 +133,7 @@ export const InboundsManager: FC = () => {
 	useEffect(() => {
 		let active = true;
 		const loadSpeeds = () => {
-			fetch<Record<string, { upload_speed: number; download_speed: number }>>("/inbounds/speeds")
+			fetch<InboundSpeedMap>("/inbounds/speeds")
 				.then((data) => {
 					if (active) setSpeeds(data || {});
 				})
@@ -485,6 +486,9 @@ export const InboundsManager: FC = () => {
 			(a, b) => b[1] - a[1],
 		)[0];
 
+		const totals = summarizeInbounds(filtered, speeds);
+		const isFiltered = filtered.length !== inbounds.length;
+
 		return [
 			{
 				label: t("total"),
@@ -510,12 +514,23 @@ export const InboundsManager: FC = () => {
 				colorScheme: "green",
 			},
 			{
+				label: isFiltered ? t("summary.filteredUsage") : t("summary.usage"),
+				value: SizeFormatter.sizeFormat(totals.total),
+				colorScheme: "blue",
+				helper: `↑ ${SizeFormatter.sizeFormat(totals.upload)} · ↓ ${SizeFormatter.sizeFormat(totals.download)}`,
+			},
+			{
+				label: t("summary.speed"),
+				value: `↑ ${SizeFormatter.sizeFormat(totals.uploadSpeed)}/s · ↓ ${SizeFormatter.sizeFormat(totals.downloadSpeed)}/s`,
+				colorScheme: "cyan",
+			},
+			{
 				label: t("usersPage.filtered"),
 				value: filtered.length,
 				colorScheme: "teal",
 			},
 		];
-	}, [filtered.length, inbounds, t]);
+	}, [filtered, inbounds, speeds, t]);
 
 	const inboundColumns = useMemo<DataTableColumn<RawInbound>[]>(
 		() => [
