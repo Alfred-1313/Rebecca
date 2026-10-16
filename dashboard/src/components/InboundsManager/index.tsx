@@ -88,6 +88,7 @@ export const InboundsManager: FC = () => {
 	const { t } = useTranslation();
 	const toast = useToast();
 	const [inbounds, setInbounds] = useState<RawInbound[]>([]);
+	const [speeds, setSpeeds] = useState<Record<string, { upload_speed: number; download_speed: number }>>({});
 	const [configTargets, setConfigTargets] = useState<CoreConfigTarget[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isMutating, setIsMutating] = useState(false);
@@ -127,6 +128,23 @@ export const InboundsManager: FC = () => {
 	useEffect(() => {
 		loadInbounds();
 	}, [loadInbounds]);
+
+	useEffect(() => {
+		let active = true;
+		const loadSpeeds = () => {
+			fetch<Record<string, { upload_speed: number; download_speed: number }>>("/inbounds/speeds")
+				.then((data) => {
+					if (active) setSpeeds(data || {});
+				})
+				.catch(() => undefined);
+		};
+		loadSpeeds();
+		const timer = window.setInterval(loadSpeeds, 5000);
+		return () => {
+			active = false;
+			window.clearInterval(timer);
+		};
+	}, []);
 
 	const filtered = useMemo(() => {
 		const matches = inbounds.filter((inbound) => {
@@ -626,6 +644,37 @@ export const InboundsManager: FC = () => {
 				},
 			},
 			{
+				id: "speed",
+				header: t("inbounds.speed"),
+				priority: "medium",
+				width: "175px",
+				maxWidth: "195px",
+				mobilePriority: 6,
+				mobileMetaLabel: t("inbounds.speed"),
+				cell: (inbound) => {
+					const speed = speeds[inbound.tag];
+					return (
+						<HStack
+							spacing={3}
+							whiteSpace="nowrap"
+							fontSize="xs"
+							dir="ltr"
+							sx={{
+								fontVariantNumeric: "tabular-nums",
+								unicodeBidi: "isolate",
+							}}
+						>
+							<Text color="teal.400">
+								↑ {SizeFormatter.sizeFormat(speed?.upload_speed ?? 0)}/s
+							</Text>
+							<Text color="blue.400">
+								↓ {SizeFormatter.sizeFormat(speed?.download_speed ?? 0)}/s
+							</Text>
+						</HStack>
+					);
+				},
+			},
+			{
 				id: "sniffing",
 				header: t("inbounds.sniffing"),
 				priority: "low",
@@ -691,7 +740,7 @@ export const InboundsManager: FC = () => {
 				},
 			},
 		],
-		[t, targetNameById],
+		[t, targetNameById, speeds],
 	);
 
 	const inboundRowActions = (

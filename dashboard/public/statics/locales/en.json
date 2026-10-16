@@ -929,6 +929,7 @@
 	"inbounds.l2tp.tunnelPort": "Tunnel port",
 	"inbounds.network": "Network",
 	"inbounds.traffic": "Traffic",
+	"inbounds.speed": "Speed",
 	"inbounds.resetUsage": "Reset usage",
 	"inbounds.resetUsageConfirm": "Reset upload and download usage for {{tag}}? This cannot be undone.",
 	"inbounds.resetUsageSuccess": "Inbound usage reset",

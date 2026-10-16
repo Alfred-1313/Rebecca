@@ -921,6 +921,7 @@
 	"inbounds.l2tp.tunnelPort": "پورت تونل",
 	"inbounds.network": "شبکه",
 	"inbounds.traffic": "ترافیک",
+	"inbounds.speed": "سرعت",
 	"inbounds.resetUsage": "ریست مصرف",
 	"inbounds.resetUsageConfirm": "مصرف آپلود و دانلود اینباند {{tag}} ریست شود؟ این عملیات قابل بازگشت نیست.",
 	"inbounds.resetUsageSuccess": "مصرف اینباند ریست شد",

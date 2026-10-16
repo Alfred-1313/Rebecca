@@ -31,6 +31,7 @@ type Controller struct {
 	healthFailures     *sync.Map
 	runtimeDiagnostics *sync.Map
 	runtimeConfigPrep  chan struct{}
+	inboundSpeeds      *inboundSpeedTracker
 }
 
 const (
@@ -50,6 +51,7 @@ func NewController(repo Repository) Controller {
 		healthFailures:     &sync.Map{},
 		runtimeDiagnostics: &sync.Map{},
 		runtimeConfigPrep:  make(chan struct{}, 1),
+		inboundSpeeds:      newInboundSpeedTracker(),
 	}
 }
 
