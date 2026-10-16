@@ -19,7 +19,6 @@ import {
 	SimpleGrid,
 	Stack,
 	type TableProps,
-	Tag,
 	Text,
 	Textarea,
 	Tooltip,
@@ -42,7 +41,6 @@ import {
 import { NoSymbolIcon } from "@heroicons/react/24/solid";
 import type { SortingState } from "@tanstack/react-table";
 import classNames from "classnames";
-import { statusColors } from "constants/UserSettings";
 import { useAdminsStore } from "contexts/AdminsContext";
 import { useContainerMinWidth } from "hooks/useContainerMinWidth";
 import useGetUser from "hooks/useGetUser";
@@ -52,6 +50,7 @@ import {
 	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -63,10 +62,7 @@ import {
 	AdminTrafficLimitMode,
 } from "types/Admin";
 import { formatBytes } from "utils/formatByte";
-import {
-	getAdminUserStatusCounts,
-	summarizeAdmins,
-} from "utils/resourceSummary";
+import { summarizeAdmins } from "utils/resourceSummary";
 import {
 	generateErrorMessage,
 	generateSuccessMessage,
@@ -95,13 +91,14 @@ const ADMIN_TRAFFIC_OPTIONS = [
 	{ label: "5TB", gigabytes: 5120 },
 ];
 
-const USERS_STATUS_MIN_TABLE_WIDTH = 1400;
-const USER_STATUS_LABEL_KEYS = {
-	limited: "admins.details.limitedLabel",
-	expired: "status.expired",
-	on_hold: "status.on_hold",
-	disabled: "status.disabled",
-} as const;
+const QUICK_ACTIONS_MIN_TABLE_WIDTH = 1250;
+const QUICK_ACTION_IDS = [
+	"edit",
+	"permissions",
+	"enable",
+	"disable",
+	"delete",
+];
 
 const iconProps = {
 	baseStyle: {
@@ -685,6 +682,9 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 			{
 				paddingInline: "4px !important",
 			},
+		"& th[data-col='quick_actions'], & td[data-col='quick_actions']": {
+			paddingInlineEnd: "0px !important",
+		},
 	};
 	const tableClassName = isRTL
 		? classNames(className, "rb-rtl-table")
@@ -844,8 +844,11 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 	};
 
 	const isWide = useBreakpointValue({ base: false, xl: true }) ?? false;
-	const [tableSectionRef, showUsersStatus] = useContainerMinWidth(
-		USERS_STATUS_MIN_TABLE_WIDTH,
+	const [tableSectionRef, showQuickActions] = useContainerMinWidth(
+		QUICK_ACTIONS_MIN_TABLE_WIDTH,
+	);
+	const rowActionsRef = useRef<(admin: Admin) => DataTableRowAction<Admin>[]>(
+		() => [],
 	);
 
 	const adminColumns = useMemo<DataTableColumn<Admin>[]>(
@@ -938,40 +941,6 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				),
 			},
 			{
-				id: "users_status",
-				header: t("admins.details.usersStatus"),
-				priority: "medium",
-				width: "1%",
-				desktopVisible: showUsersStatus,
-				hideOnMobile: true,
-				cell: (admin) => {
-					const counts = getAdminUserStatusCounts(admin);
-					if (!counts.length) {
-						return (
-							<Text fontSize="sm" color="panel.textMuted">
-								-
-							</Text>
-						);
-					}
-					return (
-						<HStack spacing={1}>
-							{counts.map(({ status, count }) => (
-								<Tag
-									key={status}
-									size="sm"
-									colorScheme={statusColors[status].statusColor}
-								>
-									{t(USER_STATUS_LABEL_KEYS[status])}
-									<chakra.span ms={1.5} fontWeight="bold">
-										{formatCount(count, locale)}
-									</chakra.span>
-								</Tag>
-							))}
-						</HStack>
-					);
-				},
-			},
-			{
 				id: "services",
 				header: t("services.title"),
 				priority: "medium",
@@ -998,7 +967,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				mobileSummary: true,
 				mobileMetaLabel: t("usersTable.traffic"),
 				cell: (admin) => (
-					<Box maxW="28rem">
+					<Box maxW="40rem">
 						<UserUsageBar
 							variant="stacked"
 							used={getAdminEffectiveUsage(admin)}
@@ -1041,8 +1010,49 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				mobileMetaLabel: t("expire"),
 				cell: (admin) => <UserExpiryCountdown expire={admin.expire} />,
 			},
+			{
+				id: "quick_actions",
+				header: "",
+				priority: "medium",
+				width: "1%",
+				desktopVisible: showQuickActions,
+				hideOnMobile: true,
+				cell: (admin) => (
+					<HStack spacing={0.5} onClick={(event) => event.stopPropagation()}>
+						{rowActionsRef
+							.current(admin)
+							.filter((action) => QUICK_ACTION_IDS.includes(action.id))
+							.map((action) => (
+								<Tooltip key={action.id} label={action.label}>
+									<span>
+										<IconButton
+											className="rb-row-action"
+											aria-label={String(action.label)}
+											icon={action.icon}
+											variant="ghost"
+											size="sm"
+											minW="28px"
+											h="28px"
+											isDisabled={
+												typeof action.isDisabled === "function"
+													? action.isDisabled(admin)
+													: action.isDisabled
+											}
+											onClick={() => action.onClick?.(admin)}
+											sx={
+												action.isDanger
+													? { "&&&:hover": { color: "red.400 !important" } }
+													: undefined
+											}
+										/>
+									</span>
+								</Tooltip>
+							))}
+					</HStack>
+				),
+			},
 		],
-		[isWide, showUsersStatus, locale, t],
+		[isWide, showQuickActions, locale, t],
 	);
 
 	const adminRowActions = (admin: Admin): DataTableRowAction<Admin>[] => {
@@ -1168,6 +1178,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 
 		return actions;
 	};
+	rowActionsRef.current = adminRowActions;
 
 	const [expandedAdminUsername, setExpandedAdminUsername] = useState<string | null>(null);
 	const isDesktop = useBreakpointValue({ base: false, md: true }) ?? false;
@@ -1246,7 +1257,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 					rowActions={adminRowActions}
 					actionsDisplay="menu"
 					actionsPlacement="end"
-					actionsColumnWidth="60px"
+					actionsColumnWidth={showQuickActions ? "40px" : "60px"}
 					showActionsOnHover
 									onRowClick={isDesktop ? (admin) => setExpandedAdminUsername((current) => (current === admin.username ? null : admin.username)) : undefined}
 									isRowExpanded={isDesktop ? (admin) => expandedAdminUsername === admin.username : undefined}
