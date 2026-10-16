@@ -283,6 +283,7 @@
 	"admins.details.unlimitedUsage": "Unlimited users usage",
 	"admins.details.used": "Used",
 	"admins.details.usersLimit": "Users limit",
+	"admins.details.usersStatus": "Users status",
 	"admins.disableAdmin": "Disable admin",
 	"admins.disableAdminConfirm": "Disable admin",
 	"admins.disableAdminMessage": "All users owned by {{username}} will be disabled. Provide a reason for this action.",

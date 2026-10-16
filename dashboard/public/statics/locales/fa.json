@@ -284,6 +284,7 @@
 	"admins.details.unlimitedUsage": "مصرف کاربران نامحدود",
 	"admins.details.used": "مصرف شده",
 	"admins.details.usersLimit": "سقف کاربران",
+	"admins.details.usersStatus": "وضعیت کاربران",
 	"admins.disableAdmin": "غیرفعال کردن مدیر",
 	"admins.disableAdminConfirm": "غیرفعال کردن مدیر",
 	"admins.disableAdminMessage": "تمام کاربران متعلق به {{username}} غیرفعال خواهند شد. دلیل این اقدام را مشخص کنید.",

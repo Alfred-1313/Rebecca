@@ -3,6 +3,7 @@ import type { Admin } from "types/Admin";
 import type { RawInbound } from "utils/inbounds";
 import { describe, expect, it } from "vitest";
 import {
+	getAdminUserStatusCounts,
 	summarizeAdmins,
 	summarizeInbounds,
 	summarizeNodes,
@@ -60,6 +61,25 @@ describe("summarizeInbounds", () => {
 			uploadSpeed: 4,
 			downloadSpeed: 8,
 		});
+	});
+});
+
+describe("getAdminUserStatusCounts", () => {
+	it("lists only the non-zero statuses in a fixed order", () => {
+		expect(
+			getAdminUserStatusCounts(
+				admin({
+					limited_users: 3,
+					expired_users: 0,
+					on_hold_users: null,
+					disabled_users: 2,
+				}),
+			),
+		).toEqual([
+			{ status: "limited", count: 3 },
+			{ status: "disabled", count: 2 },
+		]);
+		expect(getAdminUserStatusCounts(admin({}))).toEqual([]);
 	});
 });
 

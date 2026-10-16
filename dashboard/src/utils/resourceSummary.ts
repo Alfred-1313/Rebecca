@@ -74,6 +74,18 @@ export const summarizeInbounds = (
 	return summary;
 };
 
+export const getAdminUserStatusCounts = (admin: Admin) =>
+	(
+		[
+			["limited", admin.limited_users],
+			["expired", admin.expired_users],
+			["on_hold", admin.on_hold_users],
+			["disabled", admin.disabled_users],
+		] as const
+	)
+		.map(([status, count]) => ({ status, count: positive(count) }))
+		.filter(({ count }) => count > 0);
+
 export const summarizeAdmins = (admins: Admin[]) => {
 	const summary = { users: 0, online: 0, usage: 0 };
 	for (const admin of admins) {

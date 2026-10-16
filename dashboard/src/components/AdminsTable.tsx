@@ -19,6 +19,7 @@ import {
 	SimpleGrid,
 	Stack,
 	type TableProps,
+	Tag,
 	Text,
 	Textarea,
 	Tooltip,
@@ -41,7 +42,9 @@ import {
 import { NoSymbolIcon } from "@heroicons/react/24/solid";
 import type { SortingState } from "@tanstack/react-table";
 import classNames from "classnames";
+import { statusColors } from "constants/UserSettings";
 import { useAdminsStore } from "contexts/AdminsContext";
+import { useContainerMinWidth } from "hooks/useContainerMinWidth";
 import useGetUser from "hooks/useGetUser";
 import {
 	type FC,
@@ -60,7 +63,10 @@ import {
 	AdminTrafficLimitMode,
 } from "types/Admin";
 import { formatBytes } from "utils/formatByte";
-import { summarizeAdmins } from "utils/resourceSummary";
+import {
+	getAdminUserStatusCounts,
+	summarizeAdmins,
+} from "utils/resourceSummary";
 import {
 	generateErrorMessage,
 	generateSuccessMessage,
@@ -88,6 +94,14 @@ const ADMIN_TRAFFIC_OPTIONS = [
 	{ label: "2TB", gigabytes: 2048 },
 	{ label: "5TB", gigabytes: 5120 },
 ];
+
+const USERS_STATUS_MIN_TABLE_WIDTH = 1400;
+const USER_STATUS_LABEL_KEYS = {
+	limited: "admins.details.limitedLabel",
+	expired: "status.expired",
+	on_hold: "status.on_hold",
+	disabled: "status.disabled",
+} as const;
 
 const iconProps = {
 	baseStyle: {
@@ -662,12 +676,15 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 		: (sx as Record<string, unknown> | undefined);
 	const baseTableSx: Record<string, unknown> = {
 		width: "100%",
-		tableLayout: "fixed",
-		"& th, & td": {
-			px: { base: 2, xl: 2.5 },
-			py: 2.5,
+		"& th, & .rb-data-table-row > td": {
+			whiteSpace: "nowrap",
+			paddingInline: "clamp(6px, 0.8vw, 14px) !important",
 			verticalAlign: "middle",
 		},
+		"& th.rb-select-cell, & td.rb-select-cell, & th.rb-actions-cell, & td.rb-actions-cell":
+			{
+				paddingInline: "4px !important",
+			},
 	};
 	const tableClassName = isRTL
 		? classNames(className, "rb-rtl-table")
@@ -826,6 +843,11 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 		});
 	};
 
+	const isWide = useBreakpointValue({ base: false, xl: true }) ?? false;
+	const [tableSectionRef, showUsersStatus] = useContainerMinWidth(
+		USERS_STATUS_MIN_TABLE_WIDTH,
+	);
+
 	const adminColumns = useMemo<DataTableColumn<Admin>[]>(
 		() => [
 			{
@@ -835,7 +857,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				sortable: true,
 				isPrimary: true,
 				priority: "primary",
-				width: "13%",
+				width: "1%",
 				truncate: true,
 				tooltip: true,
 				cellAlign: "start",
@@ -845,6 +867,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 					<Text
 						fontWeight="semibold"
 						noOfLines={1}
+						maxW="10rem"
 						dir="ltr"
 						sx={{ unicodeBidi: "isolate" }}
 						color="panel.text"
@@ -857,7 +880,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				id: "status",
 				header: t("status"),
 				priority: "high",
-				width: "9%",
+				width: "1%",
 				headerAlign: "center",
 				mobilePriority: 1,
 				mobileMetaLabel: t("status"),
@@ -866,8 +889,8 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 			{
 				id: "role",
 				header: t("core.role"),
-				priority: "high",
-				width: "9%",
+				priority: "medium",
+				width: "1%",
 				mobilePriority: 2,
 				mobileMetaLabel: t("core.role"),
 				cell: (admin) => <AdminRoleBadge role={admin.role} />,
@@ -877,28 +900,29 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				header: t("admins.details.activeLabel"),
 				sortable: true,
 				priority: "high",
-				width: "7%",
+				width: "1%",
 				headerAlign: "center",
 				mobilePriority: 3,
 				mobileMetaLabel: t("admins.details.activeLabel"),
-				cell: (admin) => {
-					return (
-						<Text
-							fontSize="sm"
-							fontWeight="semibold"
-							dir="ltr"
-							sx={{ unicodeBidi: "isolate" }}
-						>
-							{formatCount(admin.active_users ?? 0, locale)}
-						</Text>
-					);
-				},
+				cell: (admin) => (
+					<Text
+						fontSize="sm"
+						fontWeight="semibold"
+						dir="ltr"
+						sx={{ unicodeBidi: "isolate" }}
+					>
+						{formatCount(admin.active_users ?? 0, locale)}
+						<chakra.span color="panel.textMuted" fontWeight="medium">
+							/{formatCount(admin.users_count ?? 0, locale)}
+						</chakra.span>
+					</Text>
+				),
 			},
 			{
 				id: "online",
 				header: t("admins.details.onlineLabel"),
 				priority: "medium",
-				width: "6%",
+				width: "1%",
 				headerAlign: "center",
 				mobilePriority: 4,
 				mobileMetaLabel: t("admins.details.onlineLabel"),
@@ -914,10 +938,45 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				),
 			},
 			{
+				id: "users_status",
+				header: t("admins.details.usersStatus"),
+				priority: "medium",
+				width: "1%",
+				desktopVisible: showUsersStatus,
+				hideOnMobile: true,
+				cell: (admin) => {
+					const counts = getAdminUserStatusCounts(admin);
+					if (!counts.length) {
+						return (
+							<Text fontSize="sm" color="panel.textMuted">
+								-
+							</Text>
+						);
+					}
+					return (
+						<HStack spacing={1}>
+							{counts.map(({ status, count }) => (
+								<Tag
+									key={status}
+									size="sm"
+									colorScheme={statusColors[status].statusColor}
+								>
+									{t(USER_STATUS_LABEL_KEYS[status])}
+									<chakra.span ms={1.5} fontWeight="bold">
+										{formatCount(count, locale)}
+									</chakra.span>
+								</Tag>
+							))}
+						</HStack>
+					);
+				},
+			},
+			{
 				id: "services",
 				header: t("services.title"),
 				priority: "medium",
-				width: "7%",
+				desktopVisible: isWide,
+				width: "1%",
 				mobilePriority: 5,
 				mobileMetaLabel: t("services.title"),
 				cell: (admin) => (
@@ -933,25 +992,27 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				header: t("usersTable.traffic"),
 				sortable: true,
 				priority: "high",
-				width: "16%",
-				headerAlign: "center",
+				minWidth: "120px",
 				cellAlign: "start",
 				mobilePriority: 6,
 				mobileSummary: true,
 				mobileMetaLabel: t("usersTable.traffic"),
 				cell: (admin) => (
-					<UserUsageBar
-						variant="inline"
-						used={getAdminEffectiveUsage(admin)}
-						total={admin.data_limit ?? null}
-					/>
+					<Box maxW="28rem">
+						<UserUsageBar
+							variant="stacked"
+							used={getAdminEffectiveUsage(admin)}
+							total={admin.data_limit ?? null}
+						/>
+					</Box>
 				),
 			},
 			{
 				id: "remaining_traffic",
 				header: t("usersTable.remainingTraffic"),
 				priority: "medium",
-				width: "9%",
+				desktopVisible: isWide,
+				width: "1%",
 				mobilePriority: 7,
 				mobileMetaLabel: t("usersTable.remainingTraffic"),
 				cell: (admin) => (
@@ -975,13 +1036,13 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 				id: "expire",
 				header: t("expire"),
 				priority: "medium",
-				width: "10%",
+				width: "1%",
 				mobilePriority: 8,
 				mobileMetaLabel: t("expire"),
 				cell: (admin) => <UserExpiryCountdown expire={admin.expire} />,
 			},
 		],
-		[locale, t],
+		[isWide, showUsersStatus, locale, t],
 	);
 
 	const adminRowActions = (admin: Admin): DataTableRowAction<Admin>[] => {
@@ -1161,7 +1222,7 @@ export const AdminsTable: FC<AdminsTableProps> = ({
 					{toolbar}
 				</ResourceListCard>
 
-				<Box className="rb-admins-section">
+				<Box className="rb-admins-section" ref={tableSectionRef}>
 				<DataTable
 					ariaLabel={t("admins")}
 					data={admins}
